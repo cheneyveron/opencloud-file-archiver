@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -21,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +55,7 @@ type config struct {
 	maxArchiveBytes   int64
 	maxOutputBytes    int64
 	maxEntryBytes     int64
+	maxPreviewBytes   int64
 	maxEntries        int
 	maxConcurrentJobs int
 	jobTTL            time.Duration
@@ -88,10 +91,11 @@ type destinationRef struct {
 }
 
 type extractionRequest struct {
-	Source      sourceRef      `json:"source"`
-	Destination destinationRef `json:"destination"`
-	Password    string         `json:"password,omitempty"`
-	Conflicts   string         `json:"conflicts,omitempty"`
+	Source       sourceRef      `json:"source"`
+	Destination  destinationRef `json:"destination"`
+	Password     string         `json:"password,omitempty"`
+	IncludePaths []string       `json:"includePaths,omitempty"`
+	Conflicts    string         `json:"conflicts,omitempty"`
 }
 
 type encryptionSpec struct {
@@ -144,6 +148,36 @@ type publicJob struct {
 	FinishedAt *time.Time   `json:"finishedAt,omitempty"`
 }
 
+type previewRequest struct {
+	Source   sourceRef `json:"source"`
+	Password string    `json:"password,omitempty"`
+}
+
+type previewEntry struct {
+	ID          string     `json:"id"`
+	Path        string     `json:"path"`
+	Name        string     `json:"name"`
+	Parent      string     `json:"parent"`
+	IsDir       bool       `json:"isDir"`
+	Size        int64      `json:"size"`
+	ModTime     time.Time  `json:"modTime,omitempty"`
+	CreatedTime *time.Time `json:"createdTime,omitempty"`
+	MimeType    string     `json:"mimeType,omitempty"`
+	PreviewKind string     `json:"previewKind,omitempty"`
+	Encrypted   bool       `json:"encrypted,omitempty"`
+}
+
+type publicPreview struct {
+	ID           string         `json:"id"`
+	Format       string         `json:"format"`
+	Source       sourceRef      `json:"source"`
+	Entries      []previewEntry `json:"entries,omitempty"`
+	TotalEntries int            `json:"totalEntries"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	ExpiresAt    time.Time      `json:"expiresAt"`
+}
+
 type job struct {
 	mu sync.Mutex
 
@@ -177,6 +211,22 @@ type job struct {
 	cancel context.CancelFunc
 }
 
+type previewSession struct {
+	mu sync.Mutex
+
+	ID            string
+	Format        string
+	Authorization string
+	AuthHash      string
+	Password      string
+	Source        sourceRef
+	Entries       []previewEntry
+	EntryByID     map[string]previewEntry
+	DownloadToken map[string]string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 type server struct {
 	cfg        config
 	httpClient *http.Client
@@ -184,6 +234,7 @@ type server struct {
 
 	mu          sync.RWMutex
 	jobs        map[string]*job
+	previews    map[string]*previewSession
 	subscribers map[int]subscriber
 	nextSubID   int
 }
@@ -281,6 +332,7 @@ func loadConfig() config {
 		maxArchiveBytes:   envInt64("FILE_ARCHIVER_MAX_ARCHIVE_BYTES", 20*1000*1000*1000, "ARCHIVE_MAX_ARCHIVE_BYTES"),
 		maxOutputBytes:    envInt64("FILE_ARCHIVER_MAX_OUTPUT_BYTES", 100*1000*1000*1000, "ARCHIVE_MAX_OUTPUT_BYTES"),
 		maxEntryBytes:     envInt64("FILE_ARCHIVER_MAX_ENTRY_BYTES", 20*1000*1000*1000, "ARCHIVE_MAX_ENTRY_BYTES"),
+		maxPreviewBytes:   envInt64("FILE_ARCHIVER_MAX_PREVIEW_BYTES", 50*1000*1000, "ARCHIVE_MAX_PREVIEW_BYTES"),
 		maxEntries:        int(envInt64("FILE_ARCHIVER_MAX_ENTRIES", 100000, "ARCHIVE_MAX_ENTRIES")),
 		maxConcurrentJobs: int(envInt64("FILE_ARCHIVER_MAX_CONCURRENT_JOBS", 2, "ARCHIVE_MAX_CONCURRENT_JOBS")),
 		jobTTL:            envDuration("FILE_ARCHIVER_JOB_TTL", time.Hour, "ARCHIVE_JOB_TTL"),
@@ -307,6 +359,7 @@ func newServer(cfg config) (*server, error) {
 		httpClient:  &http.Client{},
 		sem:         make(chan struct{}, cfg.maxConcurrentJobs),
 		jobs:        map[string]*job{},
+		previews:    map[string]*previewSession{},
 		subscribers: map[int]subscriber{},
 	}, nil
 }
@@ -401,6 +454,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateExtraction(w, r)
 	case r.Method == http.MethodPost && pathname == "/api/compressions":
 		s.handleCreateCompression(w, r)
+	case r.Method == http.MethodPost && pathname == "/api/previews":
+		s.handleCreatePreview(w, r)
 	case r.Method == http.MethodGet && pathname == "/api/jobs":
 		s.handleListJobs(w, r)
 	case r.Method == http.MethodGet && pathname == "/api/jobs/events":
@@ -411,6 +466,18 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleGetJob(w, r, strings.TrimPrefix(pathname, "/api/jobs/"))
 	case r.Method == http.MethodDelete && strings.HasPrefix(pathname, "/api/jobs/"):
 		s.handleCancelJob(w, r, strings.TrimPrefix(pathname, "/api/jobs/"))
+	case r.Method == http.MethodPost && strings.HasPrefix(pathname, "/api/previews/") && strings.Contains(pathname, "/entries/") && strings.HasSuffix(pathname, "/download"):
+		previewID, entryID := splitPreviewDownloadPath(pathname)
+		s.handleCreatePreviewEntryDownload(w, r, previewID, entryID)
+	case r.Method == http.MethodGet && strings.HasPrefix(pathname, "/api/previews/") && strings.Contains(pathname, "/entries/") && strings.HasSuffix(pathname, "/content"):
+		previewID, entryID := splitPreviewContentPath(pathname)
+		s.handlePreviewEntryContent(w, r, previewID, entryID)
+	case r.Method == http.MethodGet && strings.HasPrefix(pathname, "/api/previews/") && strings.HasSuffix(pathname, "/entries"):
+		s.handleListPreviewEntries(w, r, strings.TrimSuffix(strings.TrimPrefix(pathname, "/api/previews/"), "/entries"))
+	case r.Method == http.MethodGet && strings.HasPrefix(pathname, "/api/previews/"):
+		s.handleGetPreview(w, r, strings.TrimPrefix(pathname, "/api/previews/"))
+	case r.Method == http.MethodDelete && strings.HasPrefix(pathname, "/api/previews/"):
+		s.handleDeletePreview(w, r, strings.TrimPrefix(pathname, "/api/previews/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(pathname, "/api/extractions/"):
 		s.handleGetJob(w, r, strings.TrimPrefix(pathname, "/api/extractions/"))
 	case r.Method == http.MethodDelete && strings.HasPrefix(pathname, "/api/extractions/"):
@@ -510,6 +577,173 @@ func (s *server) handleCreateCompression(w http.ResponseWriter, r *http.Request)
 		go s.runCompressionSaveJob(j)
 	}
 	writeJSON(w, http.StatusAccepted, s.publicJob(j))
+}
+
+func (s *server) handleCreatePreview(w http.ResponseWriter, r *http.Request) {
+	auth, err := getAuthHeader(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var input previewRequest
+	if err := readJSON(r, s.cfg.jsonLimit, &input); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := validatePreviewRequest(&input); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	dc, err := s.newDAVClient(auth)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	entries, err := s.indexPreviewArchive(r.Context(), dc, input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if input.Password == "" && previewContainsEncryptedEntries(entries) {
+		writeError(w, newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password is required"))
+		return
+	}
+
+	now := time.Now()
+	p := &previewSession{
+		ID:            randomID(),
+		Format:        detectArchiveKind(input.Source.Name, input.Source.MimeType),
+		Authorization: auth,
+		AuthHash:      hashAuth(auth),
+		Password:      input.Password,
+		Source:        input.Source,
+		Entries:       entries,
+		EntryByID:     map[string]previewEntry{},
+		DownloadToken: map[string]string{},
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	for _, entry := range entries {
+		p.EntryByID[entry.ID] = entry
+	}
+	s.addPreview(p)
+	writeJSON(w, http.StatusCreated, s.publicPreview(p, entries))
+}
+
+func (s *server) handleGetPreview(w http.ResponseWriter, r *http.Request, encodedID string) {
+	p, err := s.getAuthorizedPreview(r, encodedID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.publicPreview(p, nil))
+}
+
+func (s *server) handleListPreviewEntries(w http.ResponseWriter, r *http.Request, encodedID string) {
+	p, err := s.getAuthorizedPreview(r, encodedID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	parent, err := normalizePreviewListPath(r.URL.Query().Get("path"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	entries := p.entriesByParent(parent)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"preview": s.publicPreview(p, nil),
+		"path":    parent,
+		"entries": entries,
+	})
+}
+
+func (s *server) handleDeletePreview(w http.ResponseWriter, r *http.Request, encodedID string) {
+	p, err := s.getAuthorizedPreview(r, encodedID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	s.mu.Lock()
+	delete(s.previews, p.ID)
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleCreatePreviewEntryDownload(w http.ResponseWriter, r *http.Request, encodedPreviewID, encodedEntryID string) {
+	p, err := s.getAuthorizedPreview(r, encodedPreviewID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	entryID, _ := url.PathUnescape(encodedEntryID)
+	entry, ok := p.entryByID(entryID)
+	if !ok {
+		writeError(w, newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found"))
+		return
+	}
+	if entry.IsDir {
+		writeError(w, newError(http.StatusBadRequest, "BAD_REQUEST", "Archive entry is a directory"))
+		return
+	}
+	if s.cfg.maxEntryBytes > 0 && entry.Size > s.cfg.maxEntryBytes {
+		writeError(w, newError(http.StatusRequestEntityTooLarge, "ENTRY_TOO_LARGE", "Archive entry exceeds configured download size limit"))
+		return
+	}
+	token := randomID()
+	p.addDownloadToken(token, entry.ID)
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"downloadUrl": previewEntryDownloadURL(p.ID, entry.ID, token),
+	})
+}
+
+func (s *server) handlePreviewEntryContent(w http.ResponseWriter, r *http.Request, encodedPreviewID, encodedEntryID string) {
+	p, err := s.getPreviewForEntryContent(r, encodedPreviewID, encodedEntryID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	entryID, _ := url.PathUnescape(encodedEntryID)
+	entry, ok := p.entryByID(entryID)
+	if !ok {
+		writeError(w, newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found"))
+		return
+	}
+	if entry.IsDir {
+		writeError(w, newError(http.StatusBadRequest, "BAD_REQUEST", "Archive entry is a directory"))
+		return
+	}
+	download := r.URL.Query().Get("download") == "1"
+	limit := s.cfg.maxPreviewBytes
+	code := "PREVIEW_TOO_LARGE"
+	message := "Archive entry exceeds configured preview size limit"
+	if download {
+		limit = s.cfg.maxEntryBytes
+		code = "ENTRY_TOO_LARGE"
+		message = "Archive entry exceeds configured download size limit"
+	}
+	if limit > 0 && entry.Size > limit {
+		writeError(w, newError(http.StatusRequestEntityTooLarge, code, message))
+		return
+	}
+
+	contentType := entry.MimeType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	if download {
+		w.Header().Set("Content-Disposition", contentDisposition(entry.Name))
+	} else {
+		w.Header().Set("Content-Disposition", inlineContentDisposition(entry.Name))
+	}
+	if entry.Size >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
+	}
+	if err := s.writePreviewEntryContent(r.Context(), w, p, entry); err != nil {
+		log.Printf("preview content failed: preview=%s entry=%s err=%v", p.ID, entry.ID, err)
+	}
 }
 
 func (s *server) handleGetJob(w http.ResponseWriter, r *http.Request, id string) {
@@ -770,6 +1004,430 @@ func (s *server) archiveStreamFromWebDAV(j *job, dc *davClient, src sourceRef) (
 	return readCloser{Reader: r, Closer: body}, nil
 }
 
+func (s *server) indexPreviewArchive(ctx context.Context, dc *davClient, req previewRequest) ([]previewEntry, error) {
+	switch detectArchiveKind(req.Source.Name, req.Source.MimeType) {
+	case "zip":
+		size, err := s.preparePreviewRandomAccessSource(ctx, dc, req.Source)
+		if err != nil {
+			return nil, err
+		}
+		reader := dc.readerAt(ctx, req.Source.SpaceID, req.Source.Path, size, s.cfg.rangeBlockSize, nil)
+		return s.indexZipPreview(reader, size, req.Password)
+	case "tar":
+		body, err := s.previewArchiveStream(ctx, dc, req.Source)
+		if err != nil {
+			return nil, err
+		}
+		defer body.Close()
+		return s.indexTarPreview(ctx, body, false)
+	case "tar.gz":
+		body, err := s.previewArchiveStream(ctx, dc, req.Source)
+		if err != nil {
+			return nil, err
+		}
+		defer body.Close()
+		return s.indexTarPreview(ctx, body, true)
+	case "gz":
+		body, err := s.previewArchiveStream(ctx, dc, req.Source)
+		if err != nil {
+			return nil, err
+		}
+		defer body.Close()
+		return s.indexGzipPreview(body, req.Source)
+	case "7z":
+		size, err := s.preparePreviewRandomAccessSource(ctx, dc, req.Source)
+		if err != nil {
+			return nil, err
+		}
+		reader := dc.readerAt(ctx, req.Source.SpaceID, req.Source.Path, size, s.cfg.rangeBlockSize, nil)
+		return s.indexSevenZipPreview(reader, size, req.Password)
+	default:
+		return nil, newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
+	}
+}
+
+func (s *server) preparePreviewRandomAccessSource(ctx context.Context, dc *davClient, src sourceRef) (int64, error) {
+	info, err := dc.stat(ctx, src.SpaceID, src.Path)
+	if err != nil {
+		return 0, err
+	}
+	if info.Size <= 0 {
+		return 0, newError(http.StatusBadRequest, "ARCHIVE_SIZE_UNKNOWN", "Archive size is required for random access preview")
+	}
+	if s.cfg.maxArchiveBytes > 0 && info.Size > s.cfg.maxArchiveBytes {
+		return 0, newError(http.StatusRequestEntityTooLarge, "ARCHIVE_TOO_LARGE", "Archive exceeds configured size limit")
+	}
+	return info.Size, nil
+}
+
+func (s *server) previewArchiveStream(ctx context.Context, dc *davClient, src sourceRef) (io.ReadCloser, error) {
+	body, size, err := dc.get(ctx, src.SpaceID, src.Path)
+	if err != nil {
+		return nil, err
+	}
+	if s.cfg.maxArchiveBytes > 0 && size > s.cfg.maxArchiveBytes {
+		_ = body.Close()
+		return nil, newError(http.StatusRequestEntityTooLarge, "ARCHIVE_TOO_LARGE", "Archive exceeds configured size limit")
+	}
+	r := &limitProgressReader{
+		ctx:       ctx,
+		r:         body,
+		maxBytes:  s.cfg.maxArchiveBytes,
+		limitCode: "ARCHIVE_TOO_LARGE",
+	}
+	return readCloser{Reader: r, Closer: body}, nil
+}
+
+func (s *server) indexZipPreview(archive io.ReaderAt, size int64, password string) ([]previewEntry, error) {
+	zr, err := yzip.NewReader(archive, size)
+	if err != nil {
+		return nil, archiveReadError(err)
+	}
+	if len(zr.File) > s.cfg.maxEntries {
+		return nil, newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Archive contains too many entries")
+	}
+	entries := make([]previewEntry, 0, len(zr.File))
+	verifiedPassword := false
+	for _, f := range zr.File {
+		entryPath, err := safeArchivePath(f.Name)
+		if err != nil {
+			return nil, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		info := f.FileInfo()
+		isDir := info.IsDir()
+		if !isDir && info.Mode().Type() != 0 {
+			return nil, newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "ZIP entry is not a regular file")
+		}
+		if f.IsEncrypted() {
+			if !zipHasWinZipAES(f.Extra) {
+				return nil, newError(http.StatusBadRequest, "UNSUPPORTED_ENCRYPTION", "ZIP standard encryption is disabled")
+			}
+			if password != "" && !verifiedPassword && !isDir {
+				f.SetPassword(password)
+				rc, err := f.Open()
+				if err != nil {
+					return nil, zipReadError(err)
+				}
+				_, copyErr := io.CopyN(io.Discard, rc, 1)
+				closeErr := rc.Close()
+				if copyErr != nil && !errors.Is(copyErr, io.EOF) {
+					return nil, zipReadError(copyErr)
+				}
+				if closeErr != nil {
+					return nil, zipReadError(closeErr)
+				}
+				verifiedPassword = true
+			}
+		}
+		entries = append(entries, previewEntry{
+			Path:        entryPath,
+			IsDir:       isDir,
+			Size:        int64(f.UncompressedSize64),
+			ModTime:     info.ModTime(),
+			CreatedTime: optionalTime(zipCreatedTime(f.Extra)),
+			Encrypted:   f.IsEncrypted(),
+		})
+	}
+	return finalizePreviewEntries(entries), nil
+}
+
+func (s *server) indexSevenZipPreview(archive io.ReaderAt, size int64, password string) ([]previewEntry, error) {
+	var zr *sevenzip.Reader
+	var err error
+	if password == "" {
+		zr, err = sevenzip.NewReader(archive, size)
+	} else {
+		zr, err = sevenzip.NewReaderWithPassword(archive, size, password)
+	}
+	if err != nil {
+		if password == "" {
+			return nil, newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password may be required")
+		}
+		return nil, archiveReadError(err)
+	}
+	if len(zr.File) > s.cfg.maxEntries {
+		return nil, newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Archive contains too many entries")
+	}
+	entries := make([]previewEntry, 0, len(zr.File))
+	for _, f := range zr.File {
+		entryPath, err := safeArchivePath(f.Name)
+		if err != nil {
+			return nil, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		info := f.FileInfo()
+		isDir := info.IsDir()
+		if !isDir && info.Mode().Type() != 0 {
+			return nil, newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "7z entry is not a regular file")
+		}
+		entries = append(entries, previewEntry{
+			Path:        entryPath,
+			IsDir:       isDir,
+			Size:        info.Size(),
+			ModTime:     info.ModTime(),
+			CreatedTime: optionalTime(f.Created),
+		})
+	}
+	return finalizePreviewEntries(entries), nil
+}
+
+func (s *server) indexTarPreview(ctx context.Context, src io.Reader, gzipped bool) ([]previewEntry, error) {
+	var r io.Reader = src
+	var gz *gzip.Reader
+	if gzipped {
+		var err error
+		gz, err = gzip.NewReader(src)
+		if err != nil {
+			return nil, archiveReadError(err)
+		}
+		defer gz.Close()
+		r = gz
+	}
+	tr := tar.NewReader(r)
+	var entries []previewEntry
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, archiveReadError(err)
+		}
+		if len(entries) >= s.cfg.maxEntries {
+			return nil, newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Archive contains too many entries")
+		}
+		entryPath, err := safeArchivePath(h.Name)
+		if err != nil {
+			return nil, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", h.Name, err))
+		}
+		switch h.Typeflag {
+		case tar.TypeDir:
+			entries = append(entries, previewEntry{Path: entryPath, IsDir: true, ModTime: h.ModTime})
+		case tar.TypeReg, tar.TypeRegA:
+			entries = append(entries, previewEntry{Path: entryPath, Size: h.Size, ModTime: h.ModTime})
+		default:
+			return nil, newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", fmt.Sprintf("Unsupported tar entry type %q", h.Typeflag))
+		}
+	}
+	return finalizePreviewEntries(entries), nil
+}
+
+func (s *server) indexGzipPreview(src io.Reader, source sourceRef) ([]previewEntry, error) {
+	gz, err := gzip.NewReader(src)
+	if err != nil {
+		return nil, archiveReadError(err)
+	}
+	defer gz.Close()
+	name := strings.TrimSuffix(strings.TrimSuffix(source.Name, ".gz"), ".GZ")
+	if gz.Name != "" {
+		if _, err := safeArchivePath(gz.Name); err == nil {
+			name = path.Base(gz.Name)
+		}
+	}
+	if name == "" || name == source.Name {
+		name = "archive-output"
+	}
+	entryPath, err := safeArchivePath(name)
+	if err != nil {
+		return nil, err
+	}
+	return finalizePreviewEntries([]previewEntry{{
+		Path:    entryPath,
+		Size:    -1,
+		ModTime: gz.ModTime,
+	}}), nil
+}
+
+func (s *server) writePreviewEntryContent(ctx context.Context, w io.Writer, p *previewSession, entry previewEntry) error {
+	dc, err := s.newDAVClient(p.Authorization)
+	if err != nil {
+		return err
+	}
+	switch p.Format {
+	case "zip":
+		size, err := s.preparePreviewRandomAccessSource(ctx, dc, p.Source)
+		if err != nil {
+			return err
+		}
+		reader := dc.readerAt(ctx, p.Source.SpaceID, p.Source.Path, size, s.cfg.rangeBlockSize, nil)
+		return s.writeZipPreviewEntry(ctx, w, reader, size, p.Password, entry)
+	case "7z":
+		size, err := s.preparePreviewRandomAccessSource(ctx, dc, p.Source)
+		if err != nil {
+			return err
+		}
+		reader := dc.readerAt(ctx, p.Source.SpaceID, p.Source.Path, size, s.cfg.rangeBlockSize, nil)
+		return s.writeSevenZipPreviewEntry(ctx, w, reader, size, p.Password, entry)
+	case "tar":
+		body, err := s.previewArchiveStream(ctx, dc, p.Source)
+		if err != nil {
+			return err
+		}
+		defer body.Close()
+		return s.writeTarPreviewEntry(ctx, w, body, false, entry)
+	case "tar.gz":
+		body, err := s.previewArchiveStream(ctx, dc, p.Source)
+		if err != nil {
+			return err
+		}
+		defer body.Close()
+		return s.writeTarPreviewEntry(ctx, w, body, true, entry)
+	case "gz":
+		body, err := s.previewArchiveStream(ctx, dc, p.Source)
+		if err != nil {
+			return err
+		}
+		defer body.Close()
+		return s.writeGzipPreviewEntry(ctx, w, body, entry)
+	default:
+		return newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
+	}
+}
+
+func (s *server) writeZipPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry) error {
+	zr, err := yzip.NewReader(archive, size)
+	if err != nil {
+		return archiveReadError(err)
+	}
+	for _, f := range zr.File {
+		entryPath, err := safeArchivePath(f.Name)
+		if err != nil {
+			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		if entryPath != entry.Path || f.FileInfo().IsDir() {
+			continue
+		}
+		if f.FileInfo().Mode().Type() != 0 {
+			return newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "ZIP entry is not a regular file")
+		}
+		if f.IsEncrypted() {
+			if !zipHasWinZipAES(f.Extra) {
+				return newError(http.StatusBadRequest, "UNSUPPORTED_ENCRYPTION", "ZIP standard encryption is disabled")
+			}
+			if password == "" {
+				return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password is required")
+			}
+			f.SetPassword(password)
+			f.DeferAuth = f.CompressedSize64 > s.cfg.aesBufferLimit
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return zipReadError(err)
+		}
+		copyErr := s.copyPreviewContent(ctx, w, rc)
+		closeErr := rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return zipReadError(closeErr)
+	}
+	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
+}
+
+func (s *server) writeSevenZipPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry) error {
+	var zr *sevenzip.Reader
+	var err error
+	if password == "" {
+		zr, err = sevenzip.NewReader(archive, size)
+	} else {
+		zr, err = sevenzip.NewReaderWithPassword(archive, size, password)
+	}
+	if err != nil {
+		if password == "" {
+			return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password may be required")
+		}
+		return archiveReadError(err)
+	}
+	for _, f := range zr.File {
+		entryPath, err := safeArchivePath(f.Name)
+		if err != nil {
+			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		info := f.FileInfo()
+		if entryPath != entry.Path || info.IsDir() {
+			continue
+		}
+		if info.Mode().Type() != 0 {
+			return newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "7z entry is not a regular file")
+		}
+		rc, err := f.Open()
+		if err != nil {
+			if password == "" {
+				return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password may be required")
+			}
+			return archiveReadError(err)
+		}
+		copyErr := s.copyPreviewContent(ctx, w, rc)
+		closeErr := rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return archiveReadError(closeErr)
+	}
+	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
+}
+
+func (s *server) writeTarPreviewEntry(ctx context.Context, w io.Writer, src io.Reader, gzipped bool, entry previewEntry) error {
+	var r io.Reader = src
+	var gz *gzip.Reader
+	if gzipped {
+		var err error
+		gz, err = gzip.NewReader(src)
+		if err != nil {
+			return archiveReadError(err)
+		}
+		defer gz.Close()
+		r = gz
+	}
+	tr := tar.NewReader(r)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return archiveReadError(err)
+		}
+		entryPath, err := safeArchivePath(h.Name)
+		if err != nil {
+			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", h.Name, err))
+		}
+		if entryPath != entry.Path {
+			continue
+		}
+		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA {
+			return newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "tar entry is not a regular file")
+		}
+		return s.copyPreviewContent(ctx, w, tr)
+	}
+	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
+}
+
+func (s *server) writeGzipPreviewEntry(ctx context.Context, w io.Writer, src io.Reader, entry previewEntry) error {
+	gz, err := gzip.NewReader(src)
+	if err != nil {
+		return archiveReadError(err)
+	}
+	defer gz.Close()
+	return s.copyPreviewContent(ctx, w, gz)
+}
+
+func (s *server) copyPreviewContent(ctx context.Context, w io.Writer, r io.Reader) error {
+	reader := &limitProgressReader{
+		ctx:       ctx,
+		r:         r,
+		maxBytes:  s.cfg.maxPreviewBytes,
+		limitCode: "PREVIEW_TOO_LARGE",
+	}
+	_, err := io.CopyBuffer(contextWriter{ctx: ctx, w: w}, reader, make([]byte, 1024*1024))
+	return err
+}
+
 func (s *server) extractZip(j *job, dc *davClient, archive io.ReaderAt, size int64) error {
 	req := j.Extraction
 	zr, err := yzip.NewReader(archive, size)
@@ -780,7 +1438,11 @@ func (s *server) extractZip(j *job, dc *davClient, archive io.ReaderAt, size int
 	if len(zr.File) > s.cfg.maxEntries {
 		return newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Archive contains too many entries")
 	}
-	s.setJob(j, func(j *job) { j.EntriesTotal = len(zr.File) })
+	includedTotal, err := countIncludedZipEntries(zr.File, req.IncludePaths)
+	if err != nil {
+		return err
+	}
+	s.setJob(j, func(j *job) { j.EntriesTotal = includedTotal })
 	if err := dc.mkcolAll(j.ctx, req.Destination.SpaceID, req.Destination.FolderPath); err != nil {
 		return err
 	}
@@ -792,6 +1454,9 @@ func (s *server) extractZip(j *job, dc *davClient, archive io.ReaderAt, size int
 		entryPath, err := safeArchivePath(f.Name)
 		if err != nil {
 			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		if !archivePathIncluded(entryPath, req.IncludePaths) {
+			continue
 		}
 		mode := f.FileInfo().Mode()
 		if f.FileInfo().IsDir() {
@@ -893,6 +1558,9 @@ func (s *server) extractTar(j *job, dc *davClient, src io.Reader, gzipped bool) 
 		if err != nil {
 			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", h.Name, err))
 		}
+		if !archivePathIncluded(entryPath, req.IncludePaths) {
+			continue
+		}
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := dc.mkcolAll(j.ctx, req.Destination.SpaceID, joinDavPath(req.Destination.FolderPath, entryPath)); err != nil {
@@ -970,6 +1638,9 @@ func (s *server) extractGzipSingle(j *job, dc *davClient, src io.Reader, tempDir
 	if err != nil {
 		return err
 	}
+	if !archivePathIncluded(entryPath, req.IncludePaths) {
+		return nil
+	}
 	if err := dc.mkcolAll(j.ctx, req.Destination.SpaceID, req.Destination.FolderPath); err != nil {
 		return err
 	}
@@ -1007,7 +1678,11 @@ func (s *server) extractSevenZip(j *job, dc *davClient, archive io.ReaderAt, siz
 	if len(zr.File) > s.cfg.maxEntries {
 		return newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Archive contains too many entries")
 	}
-	s.setJob(j, func(j *job) { j.EntriesTotal = len(zr.File) })
+	includedTotal, err := countIncludedSevenZipEntries(zr.File, req.IncludePaths)
+	if err != nil {
+		return err
+	}
+	s.setJob(j, func(j *job) { j.EntriesTotal = includedTotal })
 	if err := dc.mkcolAll(j.ctx, req.Destination.SpaceID, req.Destination.FolderPath); err != nil {
 		return err
 	}
@@ -1019,6 +1694,9 @@ func (s *server) extractSevenZip(j *job, dc *davClient, archive io.ReaderAt, siz
 		entryPath, err := safeArchivePath(f.Name)
 		if err != nil {
 			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		if !archivePathIncluded(entryPath, req.IncludePaths) {
+			continue
 		}
 		info := f.FileInfo()
 		if info.IsDir() {
@@ -1844,7 +2522,28 @@ func validateExtractionRequest(req *extractionRequest) error {
 	if err := validateDavPath(req.Destination.FolderPath, "destination.folderPath"); err != nil {
 		return err
 	}
+	includePaths, err := normalizeArchiveIncludePaths(req.IncludePaths)
+	if err != nil {
+		return err
+	}
+	req.IncludePaths = includePaths
 	req.Conflicts = normalizeConflictPolicy(req.Conflicts)
+	if detectArchiveKind(req.Source.Name, req.Source.MimeType) == "" {
+		return newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
+	}
+	return nil
+}
+
+func validatePreviewRequest(req *previewRequest) error {
+	if req.Source.SpaceID == "" {
+		return newError(http.StatusBadRequest, "BAD_REQUEST", "source.spaceId is required")
+	}
+	if req.Source.Name == "" {
+		req.Source.Name = path.Base(req.Source.Path)
+	}
+	if err := validateDavPath(req.Source.Path, "source.path"); err != nil {
+		return err
+	}
 	if detectArchiveKind(req.Source.Name, req.Source.MimeType) == "" {
 		return newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
 	}
@@ -1964,6 +2663,102 @@ func (s *server) addJob(j *job) {
 	s.jobs[j.ID] = j
 	s.mu.Unlock()
 	s.publish(j)
+}
+
+func (s *server) addPreview(p *previewSession) {
+	s.mu.Lock()
+	s.previews[p.ID] = p
+	s.mu.Unlock()
+}
+
+func (s *server) getAuthorizedPreview(r *http.Request, encodedID string) (*previewSession, error) {
+	auth, err := getAuthHeader(r)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := url.PathUnescape(encodedID)
+	s.mu.RLock()
+	p := s.previews[id]
+	s.mu.RUnlock()
+	if p == nil {
+		return nil, newError(http.StatusNotFound, "NOT_FOUND", "Archive preview not found")
+	}
+	if p.AuthHash != hashAuth(auth) {
+		return nil, newError(http.StatusForbidden, "FORBIDDEN", "Preview belongs to a different session")
+	}
+	p.mu.Lock()
+	p.UpdatedAt = time.Now()
+	p.mu.Unlock()
+	return p, nil
+}
+
+func (s *server) getPreviewForEntryContent(r *http.Request, encodedPreviewID, encodedEntryID string) (*previewSession, error) {
+	if token := r.URL.Query().Get("token"); token != "" {
+		id, _ := url.PathUnescape(encodedPreviewID)
+		entryID, _ := url.PathUnescape(encodedEntryID)
+		s.mu.RLock()
+		p := s.previews[id]
+		s.mu.RUnlock()
+		if p == nil {
+			return nil, newError(http.StatusNotFound, "NOT_FOUND", "Archive preview not found")
+		}
+		if !p.downloadTokenMatches(token, entryID) {
+			return nil, newError(http.StatusForbidden, "FORBIDDEN", "Invalid download token")
+		}
+		p.mu.Lock()
+		p.UpdatedAt = time.Now()
+		p.mu.Unlock()
+		return p, nil
+	}
+	return s.getAuthorizedPreview(r, encodedPreviewID)
+}
+
+func (s *server) publicPreview(p *previewSession, entries []previewEntry) publicPreview {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return publicPreview{
+		ID:           p.ID,
+		Format:       p.Format,
+		Source:       p.Source,
+		Entries:      entries,
+		TotalEntries: len(p.Entries),
+		CreatedAt:    p.CreatedAt,
+		UpdatedAt:    p.UpdatedAt,
+		ExpiresAt:    p.UpdatedAt.Add(s.cfg.jobTTL),
+	}
+}
+
+func (p *previewSession) entryByID(id string) (previewEntry, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.EntryByID[id]
+	return entry, ok
+}
+
+func (p *previewSession) addDownloadToken(token, entryID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.DownloadToken[token] = entryID
+	p.UpdatedAt = time.Now()
+}
+
+func (p *previewSession) downloadTokenMatches(token, entryID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	expected := p.DownloadToken[token]
+	return expected != "" && subtle.ConstantTimeCompare([]byte(expected), []byte(entryID)) == 1
+}
+
+func (p *previewSession) entriesByParent(parent string) []previewEntry {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entries := make([]previewEntry, 0)
+	for _, entry := range p.Entries {
+		if entry.Parent == parent {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
 }
 
 func (s *server) getAuthorizedJob(r *http.Request, encodedID string) (*job, error) {
@@ -2174,6 +2969,14 @@ func (s *server) sweepLoop() {
 				delete(s.jobs, id)
 			}
 		}
+		for id, p := range s.previews {
+			p.mu.Lock()
+			remove := p.UpdatedAt.Before(cutoff)
+			p.mu.Unlock()
+			if remove {
+				delete(s.previews, id)
+			}
+		}
 		s.mu.Unlock()
 	}
 }
@@ -2371,6 +3174,244 @@ func (r *limitProgressReader) Read(p []byte) (int, error) {
 
 var windowsDrive = regexp.MustCompile(`^[A-Za-z]:($|[\\/])`)
 
+func splitPreviewContentPath(pathname string) (string, string) {
+	value := strings.TrimPrefix(pathname, "/api/previews/")
+	parts := strings.SplitN(value, "/entries/", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	entryID := strings.TrimSuffix(parts[1], "/content")
+	return parts[0], entryID
+}
+
+func splitPreviewDownloadPath(pathname string) (string, string) {
+	value := strings.TrimPrefix(pathname, "/api/previews/")
+	parts := strings.SplitN(value, "/entries/", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	entryID := strings.TrimSuffix(parts[1], "/download")
+	return parts[0], entryID
+}
+
+func normalizeArchiveIncludePaths(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(strings.Trim(value, "/"))
+		if value == "" {
+			continue
+		}
+		cleaned, err := safeArchivePath(value)
+		if err != nil {
+			return nil, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected include path %q: %v", value, err))
+		}
+		if seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		out = append(out, cleaned)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func archivePathIncluded(entryPath string, includes []string) bool {
+	if len(includes) == 0 {
+		return true
+	}
+	entryPath = strings.Trim(entryPath, "/")
+	for _, include := range includes {
+		if entryPath == include || strings.HasPrefix(entryPath, include+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func countIncludedZipEntries(files []*yzip.File, includes []string) (int, error) {
+	total := 0
+	for _, f := range files {
+		entryPath, err := safeArchivePath(f.Name)
+		if err != nil {
+			return 0, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		if archivePathIncluded(entryPath, includes) {
+			total++
+		}
+	}
+	return total, nil
+}
+
+func countIncludedSevenZipEntries(files []*sevenzip.File, includes []string) (int, error) {
+	total := 0
+	for _, f := range files {
+		entryPath, err := safeArchivePath(f.Name)
+		if err != nil {
+			return 0, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", f.Name, err))
+		}
+		if archivePathIncluded(entryPath, includes) {
+			total++
+		}
+	}
+	return total, nil
+}
+
+func normalizePreviewListPath(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "/" {
+		return "/", nil
+	}
+	value = strings.Trim(value, "/")
+	cleaned, err := safeArchivePath(value)
+	if err != nil {
+		return "", newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected preview path %q: %v", value, err))
+	}
+	return cleaned, nil
+}
+
+func finalizePreviewEntries(raw []previewEntry) []previewEntry {
+	entries := map[string]previewEntry{}
+	addDir := func(dir string, modTime time.Time, createdTime *time.Time) {}
+	addDir = func(dir string, modTime time.Time, createdTime *time.Time) {
+		dir = strings.Trim(strings.TrimSuffix(dir, "/"), "/")
+		if dir == "" || dir == "." {
+			return
+		}
+		parent := previewParentPath(dir)
+		addDir(parent, time.Time{}, nil)
+		key := "d:" + dir
+		existing, ok := entries[key]
+		if ok {
+			if existing.ModTime.IsZero() && !modTime.IsZero() {
+				existing.ModTime = modTime
+			}
+			if existing.CreatedTime == nil && createdTime != nil {
+				existing.CreatedTime = createdTime
+			}
+			entries[key] = existing
+			return
+		}
+		entries[key] = previewEntry{
+			ID:          previewEntryID(dir, true),
+			Path:        dir,
+			Name:        path.Base(dir),
+			Parent:      parent,
+			IsDir:       true,
+			Size:        0,
+			ModTime:     modTime,
+			CreatedTime: createdTime,
+			MimeType:    "inode/directory",
+			PreviewKind: "directory",
+		}
+	}
+
+	for _, entry := range raw {
+		entry.Path = strings.Trim(strings.TrimSuffix(entry.Path, "/"), "/")
+		if entry.Path == "" || entry.Path == "." {
+			continue
+		}
+		if entry.IsDir {
+			addDir(entry.Path, entry.ModTime, entry.CreatedTime)
+			continue
+		}
+		parent := previewParentPath(entry.Path)
+		addDir(parent, time.Time{}, nil)
+		entry.ID = previewEntryID(entry.Path, false)
+		entry.Name = path.Base(entry.Path)
+		entry.Parent = parent
+		entry.MimeType = detectEntryMimeType(entry.Path)
+		entry.PreviewKind = detectPreviewKind(entry.MimeType, entry.Path)
+		entries["f:"+entry.Path] = entry
+	}
+
+	out := make([]previewEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Parent != out[j].Parent {
+			return out[i].Parent < out[j].Parent
+		}
+		if out[i].IsDir != out[j].IsDir {
+			return out[i].IsDir
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func previewParentPath(p string) string {
+	parent := path.Dir(strings.Trim(p, "/"))
+	if parent == "." || parent == "/" {
+		return "/"
+	}
+	return parent
+}
+
+func previewEntryID(p string, isDir bool) string {
+	prefix := "f:"
+	if isDir {
+		prefix = "d:"
+	}
+	sum := sha256.Sum256([]byte(prefix + p))
+	return hex.EncodeToString(sum[:16])
+}
+
+func detectEntryMimeType(name string) string {
+	ext := strings.ToLower(path.Ext(name))
+	switch ext {
+	case ".md", ".markdown":
+		return "text/markdown; charset=utf-8"
+	case ".txt", ".log", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".css", ".js", ".ts", ".html", ".htm", ".go", ".py", ".sh":
+		if ext == ".json" {
+			return "application/json; charset=utf-8"
+		}
+		if ext == ".csv" {
+			return "text/csv; charset=utf-8"
+		}
+		if ext == ".html" || ext == ".htm" {
+			return "text/html; charset=utf-8"
+		}
+		return "text/plain; charset=utf-8"
+	}
+	if value := mime.TypeByExtension(ext); value != "" {
+		return value
+	}
+	return "application/octet-stream"
+}
+
+func detectPreviewKind(mimeType, name string) string {
+	lowerMime := strings.ToLower(strings.Split(mimeType, ";")[0])
+	lowerName := strings.ToLower(name)
+	switch {
+	case strings.HasPrefix(lowerMime, "text/"), lowerMime == "application/json", lowerMime == "application/xml":
+		return "text"
+	case strings.HasPrefix(lowerMime, "image/"):
+		return "image"
+	case lowerMime == "application/pdf":
+		return "pdf"
+	case strings.HasSuffix(lowerName, ".xlsx"), strings.HasSuffix(lowerName, ".xls"), strings.HasSuffix(lowerName, ".ods"),
+		strings.HasSuffix(lowerName, ".docx"), strings.HasSuffix(lowerName, ".doc"), strings.HasSuffix(lowerName, ".odt"),
+		strings.HasSuffix(lowerName, ".pptx"), strings.HasSuffix(lowerName, ".ppt"), strings.HasSuffix(lowerName, ".odp"):
+		return "office"
+	default:
+		return "unsupported"
+	}
+}
+
+func previewContainsEncryptedEntries(entries []previewEntry) bool {
+	for _, entry := range entries {
+		if entry.Encrypted {
+			return true
+		}
+	}
+	return false
+}
+
 func safeArchivePath(name string) (string, error) {
 	if name == "" {
 		return "", errors.New("empty name")
@@ -2415,8 +3456,8 @@ func safeArchivePath(name string) (string, error) {
 
 func zipHasWinZipAES(extra []byte) bool {
 	for len(extra) >= 4 {
-		id := uint16(extra[0]) | uint16(extra[1])<<8
-		size := int(uint16(extra[2]) | uint16(extra[3])<<8)
+		id := binary.LittleEndian.Uint16(extra[0:2])
+		size := int(binary.LittleEndian.Uint16(extra[2:4]))
 		extra = extra[4:]
 		if size > len(extra) {
 			return false
@@ -2427,6 +3468,98 @@ func zipHasWinZipAES(extra []byte) bool {
 		extra = extra[size:]
 	}
 	return false
+}
+
+func zipCreatedTime(extra []byte) time.Time {
+	for len(extra) >= 4 {
+		id := binary.LittleEndian.Uint16(extra[0:2])
+		size := int(binary.LittleEndian.Uint16(extra[2:4]))
+		extra = extra[4:]
+		if size > len(extra) {
+			return time.Time{}
+		}
+		data := extra[:size]
+		if created := zipCreatedTimeFromExtraBlock(id, data); !created.IsZero() {
+			return created
+		}
+		extra = extra[size:]
+	}
+	return time.Time{}
+}
+
+func zipCreatedTimeFromExtraBlock(id uint16, data []byte) time.Time {
+	switch id {
+	case 0x5455:
+		return zipExtendedTimestampCreatedTime(data)
+	case 0x000a:
+		return zipNTFSCreatedTime(data)
+	default:
+		return time.Time{}
+	}
+}
+
+func zipExtendedTimestampCreatedTime(data []byte) time.Time {
+	if len(data) < 1 {
+		return time.Time{}
+	}
+	flags := data[0]
+	data = data[1:]
+	if flags&0x01 != 0 {
+		if len(data) < 4 {
+			return time.Time{}
+		}
+		data = data[4:]
+	}
+	if flags&0x02 != 0 {
+		if len(data) < 4 {
+			return time.Time{}
+		}
+		data = data[4:]
+	}
+	if flags&0x04 == 0 || len(data) < 4 {
+		return time.Time{}
+	}
+	seconds := binary.LittleEndian.Uint32(data[:4])
+	return time.Unix(int64(seconds), 0).UTC()
+}
+
+func zipNTFSCreatedTime(data []byte) time.Time {
+	if len(data) < 4 {
+		return time.Time{}
+	}
+	data = data[4:]
+	for len(data) >= 4 {
+		tag := binary.LittleEndian.Uint16(data[0:2])
+		size := int(binary.LittleEndian.Uint16(data[2:4]))
+		data = data[4:]
+		if size > len(data) {
+			return time.Time{}
+		}
+		if tag == 0x0001 && size >= 24 {
+			created := binary.LittleEndian.Uint64(data[16:24])
+			return windowsFileTime(created)
+		}
+		data = data[size:]
+	}
+	return time.Time{}
+}
+
+func windowsFileTime(value uint64) time.Time {
+	const windowsToUnixSeconds = 11644473600
+	const ticksPerSecond = 10000000
+	if value == 0 {
+		return time.Time{}
+	}
+	seconds := int64(value/ticksPerSecond) - windowsToUnixSeconds
+	nanos := int64(value%ticksPerSecond) * 100
+	return time.Unix(seconds, nanos).UTC()
+}
+
+func optionalTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }
 
 func detectArchiveKind(name, mimeType string) string {
@@ -2485,6 +3618,10 @@ func downloadJobURL(j *job) string {
 	return value + "?token=" + url.QueryEscape(j.DownloadToken)
 }
 
+func previewEntryDownloadURL(previewID, entryID, token string) string {
+	return "/archive/api/previews/" + url.PathEscape(previewID) + "/entries/" + url.PathEscape(entryID) + "/content?download=1&token=" + url.QueryEscape(token)
+}
+
 func archiveOutputName(req compressionRequest) string {
 	name := req.Output.FileName
 	if req.Output.Mode == outputSave && req.Output.Destination.FileName != "" {
@@ -2532,6 +3669,10 @@ func archiveContentType(format string) string {
 
 func contentDisposition(filename string) string {
 	return mime.FormatMediaType("attachment", map[string]string{"filename": filename})
+}
+
+func inlineContentDisposition(filename string) string {
+	return mime.FormatMediaType("inline", map[string]string{"filename": filename})
 }
 
 func tempSiblingPath(finalPath, jobID string) string {

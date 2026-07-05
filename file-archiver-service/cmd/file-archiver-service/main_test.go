@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -108,6 +109,36 @@ func TestZipHasWinZipAES(t *testing.T) {
 	}
 }
 
+func TestZipCreatedTimeNTFSExtra(t *testing.T) {
+	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	mtime := time.Date(2026, 1, 3, 3, 4, 5, 0, time.UTC)
+	atime := time.Date(2026, 1, 4, 3, 4, 5, 0, time.UTC)
+
+	var tag bytes.Buffer
+	_ = binary.Write(&tag, binary.LittleEndian, uint16(0x0001))
+	_ = binary.Write(&tag, binary.LittleEndian, uint16(24))
+	_ = binary.Write(&tag, binary.LittleEndian, windowsFileTimeValue(mtime))
+	_ = binary.Write(&tag, binary.LittleEndian, windowsFileTimeValue(atime))
+	_ = binary.Write(&tag, binary.LittleEndian, windowsFileTimeValue(created))
+
+	block := append([]byte{0, 0, 0, 0}, tag.Bytes()...)
+	extra := make([]byte, 4+len(block))
+	binary.LittleEndian.PutUint16(extra[0:2], 0x000a)
+	binary.LittleEndian.PutUint16(extra[2:4], uint16(len(block)))
+	copy(extra[4:], block)
+
+	if got := zipCreatedTime(extra); !got.Equal(created) {
+		t.Fatalf("zipCreatedTime() = %s, want %s", got, created)
+	}
+}
+
+func windowsFileTimeValue(t time.Time) uint64 {
+	const windowsToUnixSeconds = 11644473600
+	const ticksPerSecond = 10000000
+	utc := t.UTC()
+	return uint64(utc.Unix()+windowsToUnixSeconds)*ticksPerSecond + uint64(utc.Nanosecond()/100)
+}
+
 func TestCompressionSaveJobWithFakeWebDAV(t *testing.T) {
 	fake := newFakeDAV()
 	fake.requirePutContentLength = true
@@ -203,6 +234,244 @@ func TestZipExtractionJobWithFakeWebDAV(t *testing.T) {
 	}
 	if got := string(fake.file("/out/dir/file.txt")); got != "extracted" {
 		t.Fatalf("extracted content = %q", got)
+	}
+}
+
+func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("dir/file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("preview me")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	if preview.ID == "" {
+		t.Fatal("preview id is empty")
+	}
+
+	var fileEntry previewEntry
+	for _, entry := range preview.Entries {
+		if entry.Path == "dir/file.txt" {
+			fileEntry = entry
+			break
+		}
+	}
+	if fileEntry.ID == "" {
+		t.Fatalf("file entry not found in preview entries: %#v", preview.Entries)
+	}
+	if fileEntry.PreviewKind != "text" {
+		t.Fatalf("preview kind = %q, want text", fileEntry.PreviewKind)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries?path=dir", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("list entries status = %d, body=%s", res.StatusCode, data)
+	}
+	var listed struct {
+		Entries []previewEntry `json:"entries"`
+	}
+	decodeJSON(t, res.Body, &listed)
+	_ = res.Body.Close()
+	if len(listed.Entries) != 1 || listed.Entries[0].Path != "dir/file.txt" {
+		t.Fatalf("listed entries = %#v", listed.Entries)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/content", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("content status = %d, body=%s", res.StatusCode, data)
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "preview me" {
+		t.Fatalf("preview content = %q", data)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/download", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create download status = %d, body=%s", res.StatusCode, data)
+	}
+	var download struct {
+		DownloadURL string `json:"downloadUrl"`
+	}
+	decodeJSON(t, res.Body, &download)
+	_ = res.Body.Close()
+	if download.DownloadURL == "" {
+		t.Fatal("download url is empty")
+	}
+
+	req, err = http.NewRequest(http.MethodGet, api.URL+strings.TrimPrefix(download.DownloadURL, "/archive"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("download status = %d, body=%s", res.StatusCode, data)
+	}
+	if got := res.Header.Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
+		t.Fatalf("content disposition = %q, want attachment", got)
+	}
+	data, err = io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "preview me" {
+		t.Fatalf("download content = %q", data)
+	}
+}
+
+func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
+	var archive bytes.Buffer
+	zw := yzip.NewWriter(&archive)
+	w, err := zw.Encrypt("secret.txt", "password", yzip.AES256Encryption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/secret.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/secret.zip","name":"secret.zip","mimeType":"application/zip"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var payload map[string]string
+	decodeJSON(t, res.Body, &payload)
+	if payload["code"] != "PASSWORD_REQUIRED" {
+		t.Fatalf("code = %q, want PASSWORD_REQUIRED", payload["code"])
+	}
+}
+
+func TestZipExtractionJobCanIncludeSelectedPaths(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	for name, content := range map[string]string{
+		"dir/keep.txt": "keep",
+		"dir/skip.txt": "skip",
+	} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"},
+		"includePaths":["dir/keep.txt"],
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusSucceeded {
+		t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+	}
+	if got := string(fake.file("/out/dir/keep.txt")); got != "keep" {
+		t.Fatalf("included content = %q", got)
+	}
+	if got := fake.file("/out/dir/skip.txt"); got != nil {
+		t.Fatalf("excluded file was extracted: %q", got)
 	}
 }
 

@@ -23,6 +23,7 @@ RAR and ZipCrypto are intentionally not supported.
 | `FILE_ARCHIVER_MAX_ARCHIVE_BYTES` | `20000000000` | Maximum archive input size |
 | `FILE_ARCHIVER_MAX_OUTPUT_BYTES` | `100000000000` | Maximum extracted output per job |
 | `FILE_ARCHIVER_MAX_ENTRY_BYTES` | `20000000000` | Maximum single extracted entry size |
+| `FILE_ARCHIVER_MAX_PREVIEW_BYTES` | `50000000` | Maximum single entry size streamed for inline preview |
 | `FILE_ARCHIVER_MAX_ENTRIES` | `100000` | Maximum entries per job |
 | `FILE_ARCHIVER_MAX_CONCURRENT_JOBS` | `2` | Concurrent worker limit |
 | `FILE_ARCHIVER_ZIP_AES_BUFFER_LIMIT` | `512000000` | AES ZIP compressed-entry size before using deferred auth |
@@ -37,6 +38,11 @@ All endpoints require `Authorization`.
 ```http
 POST   /archive/api/extractions
 POST   /archive/api/compressions
+POST   /archive/api/previews
+GET    /archive/api/previews/{previewId}
+GET    /archive/api/previews/{previewId}/entries
+GET    /archive/api/previews/{previewId}/entries/{entryId}/content
+DELETE /archive/api/previews/{previewId}
 GET    /archive/api/jobs
 GET    /archive/api/jobs/{jobId}
 DELETE /archive/api/jobs/{jobId}

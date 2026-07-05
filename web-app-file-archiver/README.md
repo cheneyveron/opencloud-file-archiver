@@ -7,6 +7,7 @@ It registers context-menu actions for:
 - Creating ZIP, encrypted ZIP and tar.gz archives into a selected folder
 - Downloading ZIP, encrypted ZIP and tar.gz archives directly
 - Extracting supported archive files into a selected folder
+- Browsing supported archive files, previewing text/image/PDF entries and extracting selected entries
 - Displaying archive job progress and cancellation in the runtime snackbar area
 
 The extension talks to the companion `file-archiver-service` through `/archive` by default.
