@@ -1,0 +1,4 @@
+file-archiver:
+  config:
+    fileArchiverServiceUrl: /archive
+    archivePollIntervalMs: 2000

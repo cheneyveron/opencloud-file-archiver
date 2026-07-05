@@ -1,0 +1,171 @@
+diff --git a/packages/web-app-files/src/components/EmbedActions/EmbedActions.vue b/packages/web-app-files/src/components/EmbedActions/EmbedActions.vue
+index 3e86fd459c..b7522309c0 100644
+--- a/packages/web-app-files/src/components/EmbedActions/EmbedActions.vue
++++ b/packages/web-app-files/src/components/EmbedActions/EmbedActions.vue
+@@ -142,6 +142,7 @@ const emitSelect = (): void => {
+       fileName: unref(fileName),
+       locationQuery: JSON.parse(JSON.stringify(routeToContextQuery(unref(router.currentRoute))))
+     })
++    return
+   }
+ 
+   // TODO: adjust type to embedModeLocationPickMessageData later (breaking)
+diff --git a/packages/web-app-files/tests/unit/components/EmbedActions/EmbedActions.spec.ts b/packages/web-app-files/tests/unit/components/EmbedActions/EmbedActions.spec.ts
+index b4381101fb..26f86ef399 100644
+--- a/packages/web-app-files/tests/unit/components/EmbedActions/EmbedActions.spec.ts
++++ b/packages/web-app-files/tests/unit/components/EmbedActions/EmbedActions.spec.ts
+@@ -108,6 +108,7 @@ describe('EmbedActions', () => {
+           contextRouteQuery: {}
+         }
+       })
++      expect(mocks.postMessageMock).toHaveBeenCalledTimes(1)
+     })
+   })
+ 
+diff --git a/packages/web-pkg/src/components/Modals/LocationPickerModal.vue b/packages/web-pkg/src/components/Modals/LocationPickerModal.vue
+index d404920d16..f1df58729f 100644
+--- a/packages/web-pkg/src/components/Modals/LocationPickerModal.vue
++++ b/packages/web-pkg/src/components/Modals/LocationPickerModal.vue
+@@ -22,14 +22,26 @@ import {
+   useRouter,
+   useThemeStore
+ } from '../../composables'
+-import { RouteLocationRaw } from 'vue-router'
++import { LocationQuery, RouteLocationRaw } from 'vue-router'
+ import AppLoadingSpinner from '../AppLoadingSpinner.vue'
+ 
+-const { modal, parentFolderLink, submitButtonTitle, callbackFn } = defineProps<{
++const {
++  modal,
++  parentFolderLink,
++  submitButtonTitle,
++  chooseFileName,
++  chooseFileNameSuggestion,
++  callbackFn
++} = defineProps<{
+   modal: Modal
+   parentFolderLink: RouteLocationRaw
+   submitButtonTitle?: string
+-  callbackFn: (resources: embedModeLocationPickMessageData['resources']) => void
++  chooseFileName?: boolean
++  chooseFileNameSuggestion?: string
++  callbackFn: (
++    resources: embedModeLocationPickMessageData['resources'],
++    options?: { fileName?: string; locationQuery?: LocationQuery }
++  ) => void
+ }>()
+ 
+ const iframeRef = ref<HTMLIFrameElement>()
+@@ -48,6 +60,12 @@ iframeUrl.searchParams.append('embed-delegate-authentication', 'false')
+ if (submitButtonTitle) {
+   iframeUrl.searchParams.append('embed-submit-button-title', submitButtonTitle)
+ }
++if (chooseFileName) {
++  iframeUrl.searchParams.append('embed-choose-file-name', 'true')
++}
++if (chooseFileNameSuggestion) {
++  iframeUrl.searchParams.append('embed-choose-file-name-suggestion', chooseFileNameSuggestion)
++}
+ 
+ const onLoad = () => {
+   isLoading.value = false
+@@ -59,16 +77,21 @@ const onLocationPick = ({ data }: MessageEvent) => {
+     return
+   }
+ 
+-  let resources = (data.data as embedModeLocationPickMessageData)?.resources
++  const payload = data.data as embedModeLocationPickMessageData | embedModeLocationPickMessageData['resources']
++  let resources = (payload as embedModeLocationPickMessageData)?.resources
++  let fileName = (payload as embedModeLocationPickMessageData)?.fileName
++  let locationQuery = (payload as embedModeLocationPickMessageData)?.locationQuery
+   if (Array.isArray(data.data)) {
+-    resources = data.data
++    resources = data.data as embedModeLocationPickMessageData['resources']
++    fileName = undefined
++    locationQuery = undefined
+   }
+ 
+   if (!resources?.length) {
+     return
+   }
+ 
+-  callbackFn(resources)
++  callbackFn(resources, { fileName, locationQuery })
+   removeModal(modal.id)
+ }
+ 
+diff --git a/packages/web-pkg/tests/unit/components/Modals/LocationPickerModal.spec.ts b/packages/web-pkg/tests/unit/components/Modals/LocationPickerModal.spec.ts
+index 4f72721d93..fbdaeed175 100644
+--- a/packages/web-pkg/tests/unit/components/Modals/LocationPickerModal.spec.ts
++++ b/packages/web-pkg/tests/unit/components/Modals/LocationPickerModal.spec.ts
+@@ -22,6 +22,15 @@ describe('LocationPickerModal', () => {
+         'http://localhost:3000/files-spaces-generic?hide-logo=true&embed=true&embed-target=location&embed-delegate-authentication=false&embed-submit-button-title=Move+here'
+       )
+     })
++    it('sets file name picker parameters in iframe src when provided', () => {
++      const { wrapper } = getWrapper({
++        chooseFileName: true,
++        chooseFileNameSuggestion: 'archive.zip'
++      })
++      expect((wrapper.vm as any).iframeSrc).toEqual(
++        'http://localhost:3000/files-spaces-generic?hide-logo=true&embed=true&embed-target=location&embed-delegate-authentication=false&embed-choose-file-name=true&embed-choose-file-name-suggestion=archive.zip'
++      )
++    })
+   })
+   describe('method "onLocationPick"', () => {
+     it('does nothing if the event message does not equal "opencloud-embed:select"', () => {
+@@ -47,6 +56,28 @@ describe('LocationPickerModal', () => {
+       expect((wrapper.vm as any).callbackFn).toHaveBeenCalled()
+       expect(modalStore.removeModal).toHaveBeenCalled()
+     })
++    it('passes file name and location query to the callback', () => {
++      const { wrapper } = getWrapper()
++      ;(wrapper.vm as any).onLocationPick(
++        {
++          data: {
++            name: 'opencloud-embed:select',
++            data: {
++              resources: [mock<Resource>({ storageId: '1' })],
++              fileName: 'archive.zip',
++              locationQuery: { contextRouteName: 'files-spaces-generic' }
++            }
++          }
++        } as MessageEvent
++      )
++      expect((wrapper.vm as any).callbackFn).toHaveBeenCalledWith(
++        expect.any(Array),
++        expect.objectContaining({
++          fileName: 'archive.zip',
++          locationQuery: { contextRouteName: 'files-spaces-generic' }
++        })
++      )
++    })
+     it('calls callback function for legacy array payload when message does equal "opencloud-embed:select"', () => {
+       const { wrapper } = getWrapper()
+       const modalStore = useModals()
+@@ -64,7 +95,15 @@ describe('LocationPickerModal', () => {
+   })
+ })
+ 
+-function getWrapper({ submitButtonTitle }: { submitButtonTitle?: string } = {}) {
++function getWrapper({
++  submitButtonTitle,
++  chooseFileName,
++  chooseFileNameSuggestion
++}: {
++  submitButtonTitle?: string
++  chooseFileName?: boolean
++  chooseFileNameSuggestion?: string
++} = {}) {
+   const mocks = defaultComponentMocks()
+ 
+   return {
+@@ -74,6 +113,8 @@ function getWrapper({ submitButtonTitle }: { submitButtonTitle?: string } = {})
+         modal: mock<Modal>(),
+         callbackFn: vi.fn(),
+         submitButtonTitle,
++        chooseFileName,
++        chooseFileNameSuggestion,
+         parentFolderLink: {
+           name: 'files-spaces-generic',
+           params: {

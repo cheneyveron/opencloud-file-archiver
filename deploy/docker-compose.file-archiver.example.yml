@@ -1,0 +1,28 @@
+services:
+  opencloud:
+    environment:
+      WEB_ASSET_APPS_PATH: /web/apps
+    volumes:
+      - ../web-app-file-archiver/dist:/web/apps/file-archiver:ro
+
+  file-archiver:
+    build:
+      context: ../file-archiver-service
+    environment:
+      FILE_ARCHIVER_OPENCLOUD_URL: ${FILE_ARCHIVER_OPENCLOUD_URL:-https://host.docker.internal:9200}
+      FILE_ARCHIVER_MAX_CONCURRENT_JOBS: ${FILE_ARCHIVER_MAX_CONCURRENT_JOBS:-2}
+      FILE_ARCHIVER_TMP_DIR: /tmp/opencloud-file-archiver
+    volumes:
+      - file_archiver_tmp:/tmp/opencloud-file-archiver
+    labels:
+      traefik.enable: true
+      traefik.http.routers.file-archiver.tls: true
+      traefik.http.routers.file-archiver.rule: Host(`${OC_HOST:-host.docker.internal}`) && PathPrefix(`/archive`)
+      traefik.http.routers.file-archiver.priority: 100
+      traefik.http.routers.file-archiver.entrypoints: opencloud
+      traefik.http.routers.file-archiver.middlewares: file-archiver-strip,cors
+      traefik.http.middlewares.file-archiver-strip.stripprefix.prefixes: /archive
+      traefik.http.services.file-archiver.loadbalancer.server.port: 8080
+
+volumes:
+  file_archiver_tmp:

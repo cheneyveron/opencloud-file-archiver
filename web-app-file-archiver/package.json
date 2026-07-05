@@ -1,0 +1,33 @@
+{
+  "name": "web-app-file-archiver",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenCloud Web file archiver actions",
+  "license": "AGPL-3.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm vite build",
+    "build:w": "pnpm vite build --watch --mode development",
+    "check:types": "vue-tsc --noEmit",
+    "test:unit": "NODE_OPTIONS=--unhandled-rejections=throw vitest"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@opencloud-eu/extension-sdk": "^7.0.0",
+    "@opencloud-eu/tsconfig": "^7.0.0",
+    "@opencloud-eu/web-client": "^7.0.0",
+    "@opencloud-eu/web-pkg": "^7.0.0",
+    "@opencloud-eu/web-test-helpers": "^7.0.0",
+    "@playwright/test": "^1.50.1",
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^20.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.1",
+    "vitest-mock-extended": "^4.0.0",
+    "vue": "^3.4.21",
+    "vue-tsc": "^3.2.6",
+    "vue3-gettext": "4.0.0-beta.1"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

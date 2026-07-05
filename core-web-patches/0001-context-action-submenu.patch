@@ -1,0 +1,164 @@
+diff --git a/packages/web-pkg/src/components/ContextActions/ActionMenuDropItem.vue b/packages/web-pkg/src/components/ContextActions/ActionMenuDropItem.vue
+index 7bc1f530c9..558acc865b 100644
+--- a/packages/web-pkg/src/components/ContextActions/ActionMenuDropItem.vue
++++ b/packages/web-pkg/src/components/ContextActions/ActionMenuDropItem.vue
+@@ -5,7 +5,7 @@
+       appearance="raw"
+       justify-content="space-between"
+       gap-size="medium"
+-      class="w-full flex justify-between"
++      :class="[menuSectionDrop.class, 'w-full flex justify-between']"
+       aria-expanded="false"
+     >
+       <span class="inline-flex gap-2">
+diff --git a/packages/web-pkg/src/components/ContextActions/ContextActionMenu.vue b/packages/web-pkg/src/components/ContextActions/ContextActionMenu.vue
+index 080c436dd1..aee19b3325 100644
+--- a/packages/web-pkg/src/components/ContextActions/ContextActionMenu.vue
++++ b/packages/web-pkg/src/components/ContextActions/ContextActionMenu.vue
+@@ -8,14 +8,24 @@
+       :class="getSectionClasses(sectionIndex)"
+     >
+       <template v-if="section.items">
+-        <action-menu-item
++        <template
+           v-for="(action, actionIndex) in section.items"
+           :key="`section-${section.name}-action-${actionIndex}`"
+-          :action="action"
+-          :appearance="appearance"
+-          :action-options="actionOptions"
+-          class="context-menu"
+-        />
++        >
++          <action-menu-drop-item
++            v-if="action.children"
++            :menu-section-drop="actionToDropItem(action)"
++            :appearance="appearance"
++            :action-options="actionOptions"
++          />
++          <action-menu-item
++            v-else
++            :action="action"
++            :appearance="appearance"
++            :action-options="actionOptions"
++            class="context-menu"
++          />
++        </template>
+       </template>
+       <template v-for="drop in section.dropItems">
+         <action-menu-drop-item
+@@ -33,10 +43,10 @@
+ <script lang="ts">
+ import { defineComponent, PropType } from 'vue'
+ import ActionMenuItem from './ActionMenuItem.vue'
+-import { ActionOptions } from '../../composables'
++import { Action, ActionOptions } from '../../composables'
+ import { AppearanceType } from '@opencloud-eu/design-system/helpers'
+ import ActionMenuDropItem from './ActionMenuDropItem.vue'
+-import { MenuSection } from './types'
++import { MenuSection, MenuSectionDrop } from './types'
+ 
+ export default defineComponent({
+   name: 'ContextActionMenu',
+@@ -56,6 +66,16 @@ export default defineComponent({
+     }
+   },
+   methods: {
++    actionToDropItem(action: Action): MenuSectionDrop {
++      return {
++        label: action.label(this.actionOptions),
++        name: action.name,
++        icon:
++          typeof action.icon === 'function' ? action.icon(this.actionOptions) : action.icon,
++        class: action.class,
++        items: (action.children || []).filter((child) => child.isVisible(this.actionOptions))
++      }
++    },
+     getSectionClasses(index: number) {
+       const classes: string[] = []
+       if (!this.menuSections.length) {
+diff --git a/packages/web-pkg/src/components/ContextActions/types.ts b/packages/web-pkg/src/components/ContextActions/types.ts
+index 56fa43ed28..dc3052ef51 100644
+--- a/packages/web-pkg/src/components/ContextActions/types.ts
++++ b/packages/web-pkg/src/components/ContextActions/types.ts
+@@ -4,6 +4,7 @@ export type MenuSectionDrop = {
+   label: string
+   name: string
+   icon: string
++  class?: string
+   items?: Action[]
+   emptyMessage?: string
+ }
+diff --git a/packages/web-pkg/src/composables/actions/types.ts b/packages/web-pkg/src/composables/actions/types.ts
+index 8a8fdb5a10..0c2656dd38 100644
+--- a/packages/web-pkg/src/composables/actions/types.ts
++++ b/packages/web-pkg/src/composables/actions/types.ts
+@@ -94,6 +94,10 @@ export interface Action<T = ActionOptions> {
+    * This can be a string or a function that returns a string based on the given options.
+    */
+   label(options?: T): string
++  /**
++   * Optional child actions rendered as a nested context menu.
++   */
++  children?: Action<T>[]
+   /**
+    * Determines whether the action should be visible in the UI based on the given options.
+    */
+diff --git a/packages/web-pkg/tests/unit/components/ContextActions/ContextActionMenu.spec.ts b/packages/web-pkg/tests/unit/components/ContextActions/ContextActionMenu.spec.ts
+index 11708bcbdf..716b84392d 100644
+--- a/packages/web-pkg/tests/unit/components/ContextActions/ContextActionMenu.spec.ts
++++ b/packages/web-pkg/tests/unit/components/ContextActions/ContextActionMenu.spec.ts
+@@ -1,4 +1,5 @@
+ import ContextActionMenu from '../../../../src/components/ContextActions/ContextActionMenu.vue'
++import ActionMenuDropItem from '../../../../src/components/ContextActions/ActionMenuDropItem.vue'
+ import { Action } from '../../../../src/composables/actions'
+ import { defaultPlugins, mount } from '@opencloud-eu/web-test-helpers'
+ 
+@@ -57,6 +58,48 @@ describe('ContextActionMenu component', () => {
+ 
+     expect(wrapper.findAll('#oc-files-context-menu > ul').length).toEqual(menuSections.length)
+   })
++
++  it('renders action children as a nested drop menu', () => {
++    const menuSections = [
++      {
++        name: 'archive',
++        items: [
++          {
++            name: 'create-archive',
++            icon: 'inbox-archive',
++            class: 'oc-files-actions-create-archive',
++            label: () => 'Create Archive',
++            isVisible: () => true,
++            children: [
++              {
++                name: 'create-zip-archive',
++                icon: 'inbox-archive',
++                class: 'oc-files-actions-create-zip-archive',
++                label: () => 'ZIP archive',
++                isVisible: () => true,
++                handler: vi.fn()
++              },
++              {
++                name: 'create-hidden-archive',
++                icon: 'inbox-archive',
++                class: 'oc-files-actions-create-hidden-archive',
++                label: () => 'Hidden archive',
++                isVisible: () => false,
++                handler: vi.fn()
++              }
++            ]
++          } as Action
++        ]
++      }
++    ]
++    const { wrapper } = getWrapper(menuSections)
++
++    expect(wrapper.find('.oc-files-actions-create-archive').exists()).toBeTruthy()
++    const drop = wrapper.findComponent(ActionMenuDropItem)
++    expect(drop.props('menuSectionDrop').items.map((item: Action) => item.name)).toEqual([
++      'create-zip-archive'
++    ])
++  })
+ })
+ 
+ function getWrapper(menuSections: { name: string; items: Action[] }[]) {

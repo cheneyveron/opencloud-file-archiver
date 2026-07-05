@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+coverage/
+test-results/
+.__mf__temp/
+__mf__virtual/
+
+*.log
+.DS_Store
