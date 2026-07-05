@@ -53,10 +53,9 @@
             <span v-text="$gettext('Name')" />
             <span class="text-right" v-text="$gettext('Size')" />
             <span v-text="$gettext('Modified')" />
-            <span v-text="$gettext('Created')" />
-            <span class="sr-only" v-text="$gettext('Actions')" />
+            <span class="text-center" v-text="$gettext('Actions')" />
             <input
-              class="size-4 justify-self-center"
+              class="archive-viewer__checkbox justify-self-center"
               type="checkbox"
               :aria-label="$gettext('Select all')"
               :checked="entries.length > 0 && entries.every((entry) => selected.has(entry.path))"
@@ -81,7 +80,6 @@
               </oc-button>
               <span class="text-right text-sm text-role-on-surface-variant" v-text="entry.isDir ? '-' : formatSize(entry.size)" />
               <span class="truncate text-sm text-role-on-surface-variant" v-text="formatDateTime(entry.modTime)" />
-              <span class="truncate text-sm text-role-on-surface-variant" v-text="formatDateTime(entry.createdTime)" />
               <div class="archive-viewer__actions justify-self-center">
                 <oc-button
                   :id="entryActionToggleId(entry)"
@@ -127,7 +125,7 @@
                 </oc-drop>
               </div>
               <input
-                class="size-4 justify-self-center self-center"
+                class="archive-viewer__checkbox justify-self-center self-center"
                 type="checkbox"
                 :aria-label="$gettext('Select %{name}', { name: entry.name })"
                 :checked="selected.has(entry.path)"
@@ -642,12 +640,12 @@ onBeforeUnmount(() => {
 }
 
 .archive-viewer__list {
-  min-width: 44.5rem;
+  min-width: 38rem;
 }
 
 .archive-viewer__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5rem 8.75rem 8.75rem 2.5rem 2rem;
+  grid-template-columns: minmax(0, 1fr) 5rem 8.75rem 4rem 3rem;
   align-items: center;
   column-gap: 0.5rem;
   min-height: 2.75rem;
@@ -658,7 +656,7 @@ onBeforeUnmount(() => {
 }
 
 .archive-viewer__actions {
-  min-width: 2.5rem;
+  min-width: 4rem;
 }
 
 .archive-viewer__action-item {
@@ -666,6 +664,13 @@ onBeforeUnmount(() => {
   justify-content: flex-start;
   width: 100%;
   gap: 0.5rem;
+}
+
+.archive-viewer__checkbox {
+  width: 1rem;
+  min-width: 1rem;
+  height: 1rem;
+  margin: 0;
 }
 
 @media (max-width: 960px) {

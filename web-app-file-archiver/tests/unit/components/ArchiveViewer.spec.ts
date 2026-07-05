@@ -64,7 +64,6 @@ describe('ArchiveViewer', () => {
       expect(wrapper.text()).toContain('file.txt')
       expect(wrapper.text()).toContain('18 B')
       expect(wrapper.text()).toContain('Modified')
-      expect(wrapper.text()).toContain('Created')
       expect(wrapper.text()).toContain('2026')
     })
 
