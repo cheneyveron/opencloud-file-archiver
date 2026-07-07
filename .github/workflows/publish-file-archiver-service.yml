@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - ".github/workflows/publish-file-archiver-service.yml"
-      - "file-archiver-service/**"
   workflow_dispatch:
 
 permissions:

@@ -15,7 +15,7 @@ pnpm install
 pnpm build
 ```
 
-The service image is published on every relevant `main` branch push:
+The service image is published on every `main` branch push:
 
 ```sh
 ghcr.io/cheneyveron/opencloud-file-archiver-service:main
