@@ -133,6 +133,29 @@ func TestZipCreatedTimeNTFSExtra(t *testing.T) {
 	}
 }
 
+func TestDAVClientURLEncodesPathSegmentsOnce(t *testing.T) {
+	base, err := url.Parse("https://cloud.example/base/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc := &davClient{base: base}
+
+	got := dc.url("space$id", "/seven-out (1).zip")
+	want := "https://cloud.example/base/dav/spaces/space$id/seven-out%20%281%29.zip"
+	if got != want {
+		t.Fatalf("url() = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "%2520") || strings.Contains(got, "%2528") {
+		t.Fatalf("url() double-encoded path segments: %q", got)
+	}
+
+	got = dc.url("space$id", "/literal%name.zip")
+	want = "https://cloud.example/base/dav/spaces/space$id/literal%25name.zip"
+	if got != want {
+		t.Fatalf("url() = %q, want %q", got, want)
+	}
+}
+
 func windowsFileTimeValue(t time.Time) uint64 {
 	const windowsToUnixSeconds = 11644473600
 	const ticksPerSecond = 10000000
@@ -420,6 +443,68 @@ func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
 	}
 }
 
+func TestZipPreviewAndExtractionWithEscapedSourcePath(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("dir/file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("escaped source")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/seven-out (1).zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	previewBody := `{
+		"source":{"spaceId":"space-id","path":"/seven-out (1).zip","name":"seven-out (1).zip","mimeType":"application/zip"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, previewBody)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	if len(preview.Entries) == 0 {
+		t.Fatal("preview entries are empty")
+	}
+
+	extractBody := `{
+		"source":{"spaceId":"space-id","path":"/seven-out (1).zip","name":"seven-out (1).zip","mimeType":"application/zip"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"},
+		"conflicts":"fail"
+	}`
+	res = doJSON(t, api.URL+"/api/extractions", http.MethodPost, extractBody)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusSucceeded {
+		t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+	}
+	if got := string(fake.file("/out/dir/file.txt")); got != "escaped source" {
+		t.Fatalf("extracted content = %q", got)
+	}
+}
+
 func TestZipExtractionEncryptedArchiveRequiresPassword(t *testing.T) {
 	var archive bytes.Buffer
 	zw := yzip.NewWriter(&archive)
@@ -678,18 +763,20 @@ type fakeDAV struct {
 	mu                      sync.Mutex
 	files                   map[string][]byte
 	dirs                    map[string]bool
+	spaceID                 string
 	requirePutContentLength bool
 }
 
 func newFakeDAV() *fakeDAV {
 	return &fakeDAV{
-		files: map[string][]byte{},
-		dirs:  map[string]bool{"/": true},
+		files:   map[string][]byte{},
+		dirs:    map[string]bool{"/": true},
+		spaceID: "space-id",
 	}
 }
 
 func (f *fakeDAV) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	p := fakeDAVPath(r.URL.Path)
+	p := fakeDAVPath(r.URL.EscapedPath(), f.spaceID)
 	switch r.Method {
 	case http.MethodGet:
 		f.handleGet(w, r, p)
@@ -806,7 +893,7 @@ func (f *fakeDAV) handleMove(w http.ResponseWriter, r *http.Request, src string)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	dst := fakeDAVPath(dstURL.Path)
+	dst := fakeDAVPath(dstURL.EscapedPath(), f.spaceID)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	data, ok := f.files[src]
@@ -866,7 +953,10 @@ func (f *fakeDAV) writeProp(w http.ResponseWriter, p string) {
 	if p == "/" {
 		name = ""
 	}
-	href := "/dav/spaces/space-id" + p
+	href := "/dav/spaces/" + url.PathEscape(f.spaceID)
+	if p != "/" {
+		href += "/" + encodePathSegments(p)
+	}
 	size := 0
 	resourceType := ""
 	if f.dirs[p] {
@@ -903,8 +993,9 @@ func (f *fakeDAV) ensureDirLocked(p string) {
 	}
 }
 
-func fakeDAVPath(requestPath string) string {
-	parts := strings.SplitN(strings.TrimPrefix(requestPath, "/dav/spaces/space-id"), "?", 2)
+func fakeDAVPath(requestPath, spaceID string) string {
+	prefix := "/dav/spaces/" + url.PathEscape(spaceID)
+	parts := strings.SplitN(strings.TrimPrefix(requestPath, prefix), "?", 2)
 	value, _ := url.PathUnescape(parts[0])
 	return cleanDavPath(value)
 }

@@ -2164,15 +2164,24 @@ func (s *server) newDAVClient(auth string) (*davClient, error) {
 }
 
 func (c *davClient) url(spaceID, p string) string {
-	escaped := encodePathSegments(p)
-	suffix := "/dav/spaces/" + url.PathEscape(spaceID)
-	if escaped != "" {
-		suffix += "/" + escaped
-	}
+	suffix, rawSuffix := davURLSuffix(spaceID, p)
 	u := *c.base
+	baseRawPath := strings.TrimRight(u.EscapedPath(), "/")
 	u.Path = strings.TrimRight(u.Path, "/") + suffix
+	u.RawPath = baseRawPath + rawSuffix
 	u.RawQuery = ""
 	return u.String()
+}
+
+func davURLSuffix(spaceID, p string) (string, string) {
+	suffix := "/dav/spaces/" + spaceID
+	rawSuffix := "/dav/spaces/" + url.PathEscape(spaceID)
+	p = cleanDavPath(p)
+	if p != "/" {
+		suffix += "/" + strings.TrimPrefix(p, "/")
+		rawSuffix += "/" + encodePathSegments(p)
+	}
+	return suffix, rawSuffix
 }
 
 func (c *davClient) do(ctx context.Context, method, spaceID, p string, body io.Reader, headers map[string]string) (*http.Response, error) {
