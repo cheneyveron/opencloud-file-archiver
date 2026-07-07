@@ -789,7 +789,7 @@ func (s *server) handlePreviewEntryContent(w http.ResponseWriter, r *http.Reques
 		if entry.Size >= 0 {
 			w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
 		}
-		if err := s.writePreviewEntryContent(r.Context(), w, p, entry); err != nil {
+		if err := s.writePreviewEntryContent(r.Context(), w, p, entry, limit, code); err != nil {
 			log.Printf("preview content failed: preview=%s entry=%s err=%v", p.ID, entry.ID, err)
 		}
 		return nil
@@ -1318,7 +1318,7 @@ func (s *server) indexGzipPreview(src io.Reader, source sourceRef) ([]previewEnt
 	}}), nil
 }
 
-func (s *server) writePreviewEntryContent(ctx context.Context, w io.Writer, p *previewSession, entry previewEntry) error {
+func (s *server) writePreviewEntryContent(ctx context.Context, w io.Writer, p *previewSession, entry previewEntry, maxBytes int64, limitCode string) error {
 	dc, err := s.newDAVClient(p.Authorization)
 	if err != nil {
 		return err
@@ -1330,41 +1330,41 @@ func (s *server) writePreviewEntryContent(ctx context.Context, w io.Writer, p *p
 			return err
 		}
 		reader := dc.readerAt(ctx, p.Source.SpaceID, p.Source.Path, size, s.cfg.rangeBlockSize, nil)
-		return s.writeZipPreviewEntry(ctx, w, reader, size, p.Password, entry)
+		return s.writeZipPreviewEntry(ctx, w, reader, size, p.Password, entry, maxBytes, limitCode)
 	case "7z":
 		size, err := s.preparePreviewRandomAccessSource(ctx, dc, p.Source)
 		if err != nil {
 			return err
 		}
 		reader := dc.readerAt(ctx, p.Source.SpaceID, p.Source.Path, size, s.cfg.rangeBlockSize, nil)
-		return s.writeSevenZipPreviewEntry(ctx, w, reader, size, p.Password, entry)
+		return s.writeSevenZipPreviewEntry(ctx, w, reader, size, p.Password, entry, maxBytes, limitCode)
 	case "tar":
 		body, err := s.previewArchiveStream(ctx, dc, p.Source)
 		if err != nil {
 			return err
 		}
 		defer body.Close()
-		return s.writeTarPreviewEntry(ctx, w, body, false, entry)
+		return s.writeTarPreviewEntry(ctx, w, body, false, entry, maxBytes, limitCode)
 	case "tar.gz":
 		body, err := s.previewArchiveStream(ctx, dc, p.Source)
 		if err != nil {
 			return err
 		}
 		defer body.Close()
-		return s.writeTarPreviewEntry(ctx, w, body, true, entry)
+		return s.writeTarPreviewEntry(ctx, w, body, true, entry, maxBytes, limitCode)
 	case "gz":
 		body, err := s.previewArchiveStream(ctx, dc, p.Source)
 		if err != nil {
 			return err
 		}
 		defer body.Close()
-		return s.writeGzipPreviewEntry(ctx, w, body, entry)
+		return s.writeGzipPreviewEntry(ctx, w, body, entry, maxBytes, limitCode)
 	default:
 		return newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
 	}
 }
 
-func (s *server) writeZipPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry) error {
+func (s *server) writeZipPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry, maxBytes int64, limitCode string) error {
 	zr, err := yzip.NewReader(archive, size)
 	if err != nil {
 		return archiveReadError(err)
@@ -1394,7 +1394,7 @@ func (s *server) writeZipPreviewEntry(ctx context.Context, w io.Writer, archive 
 		if err != nil {
 			return zipReadError(err)
 		}
-		copyErr := s.copyPreviewContent(ctx, w, rc)
+		copyErr := s.copyPreviewContent(ctx, w, rc, maxBytes, limitCode)
 		closeErr := rc.Close()
 		if copyErr != nil {
 			return copyErr
@@ -1404,7 +1404,7 @@ func (s *server) writeZipPreviewEntry(ctx context.Context, w io.Writer, archive 
 	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
 }
 
-func (s *server) writeSevenZipPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry) error {
+func (s *server) writeSevenZipPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry, maxBytes int64, limitCode string) error {
 	var zr *sevenzip.Reader
 	var err error
 	if password == "" {
@@ -1437,7 +1437,7 @@ func (s *server) writeSevenZipPreviewEntry(ctx context.Context, w io.Writer, arc
 			}
 			return archiveReadError(err)
 		}
-		copyErr := s.copyPreviewContent(ctx, w, rc)
+		copyErr := s.copyPreviewContent(ctx, w, rc, maxBytes, limitCode)
 		closeErr := rc.Close()
 		if copyErr != nil {
 			return copyErr
@@ -1447,7 +1447,7 @@ func (s *server) writeSevenZipPreviewEntry(ctx context.Context, w io.Writer, arc
 	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
 }
 
-func (s *server) writeTarPreviewEntry(ctx context.Context, w io.Writer, src io.Reader, gzipped bool, entry previewEntry) error {
+func (s *server) writeTarPreviewEntry(ctx context.Context, w io.Writer, src io.Reader, gzipped bool, entry previewEntry, maxBytes int64, limitCode string) error {
 	var r io.Reader = src
 	var gz *gzip.Reader
 	if gzipped {
@@ -1481,26 +1481,26 @@ func (s *server) writeTarPreviewEntry(ctx context.Context, w io.Writer, src io.R
 		if h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeRegA {
 			return newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "tar entry is not a regular file")
 		}
-		return s.copyPreviewContent(ctx, w, tr)
+		return s.copyPreviewContent(ctx, w, tr, maxBytes, limitCode)
 	}
 	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
 }
 
-func (s *server) writeGzipPreviewEntry(ctx context.Context, w io.Writer, src io.Reader, entry previewEntry) error {
+func (s *server) writeGzipPreviewEntry(ctx context.Context, w io.Writer, src io.Reader, entry previewEntry, maxBytes int64, limitCode string) error {
 	gz, err := gzip.NewReader(src)
 	if err != nil {
 		return archiveReadError(err)
 	}
 	defer gz.Close()
-	return s.copyPreviewContent(ctx, w, gz)
+	return s.copyPreviewContent(ctx, w, gz, maxBytes, limitCode)
 }
 
-func (s *server) copyPreviewContent(ctx context.Context, w io.Writer, r io.Reader) error {
+func (s *server) copyPreviewContent(ctx context.Context, w io.Writer, r io.Reader, maxBytes int64, limitCode string) error {
 	reader := &limitProgressReader{
 		ctx:       ctx,
 		r:         r,
-		maxBytes:  s.cfg.maxPreviewBytes,
-		limitCode: "PREVIEW_TOO_LARGE",
+		maxBytes:  maxBytes,
+		limitCode: limitCode,
 	}
 	_, err := io.CopyBuffer(contextWriter{ctx: ctx, w: w}, reader, make([]byte, 1024*1024))
 	return err

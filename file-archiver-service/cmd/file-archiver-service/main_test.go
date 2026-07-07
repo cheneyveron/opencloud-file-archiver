@@ -597,6 +597,108 @@ func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 	}
 }
 
+func TestPreviewEntryDownloadUsesEntryLimit(t *testing.T) {
+	content := bytes.Repeat([]byte("0123456789abcdef"), 80*1024)
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("large.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	svc.cfg.maxPreviewBytes = 1024
+	svc.cfg.maxEntryBytes = int64(len(content) + 1024)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	var fileEntry previewEntry
+	for _, entry := range preview.Entries {
+		if entry.Path == "large.txt" {
+			fileEntry = entry
+			break
+		}
+	}
+	if fileEntry.ID == "" {
+		t.Fatalf("file entry not found in preview entries: %#v", preview.Entries)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/content", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		data, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		t.Fatalf("preview content status = %d, body=%s", res.StatusCode, data)
+	}
+	_ = res.Body.Close()
+
+	req, err = http.NewRequest(http.MethodPost, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/download", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		t.Fatalf("create download status = %d, body=%s", res.StatusCode, data)
+	}
+	var download struct {
+		DownloadURL string `json:"downloadUrl"`
+	}
+	decodeJSON(t, res.Body, &download)
+	_ = res.Body.Close()
+
+	res, err = http.Get(api.URL + strings.TrimPrefix(download.DownloadURL, "/archive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("download status = %d, body=%s", res.StatusCode, data)
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, content) {
+		t.Fatalf("downloaded content length = %d, want %d", len(data), len(content))
+	}
+}
+
 func TestCreatePreviewUsesWorkerSemaphore(t *testing.T) {
 	var archive bytes.Buffer
 	zw := zip.NewWriter(&archive)
