@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
@@ -968,6 +969,56 @@ func TestCompressionDownloadJobUsesDownloadToken(t *testing.T) {
 	}
 	if string(got) != "download archive" {
 		t.Fatalf("downloaded zip content = %q", got)
+	}
+}
+
+func TestCompressionDownloadJobEnforcesOutputLimit(t *testing.T) {
+	source := make([]byte, 4096)
+	if _, err := rand.Read(source); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/source.bin", source)
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	svc.cfg.maxOutputBytes = 256
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"format":"zip",
+		"sources":[{"spaceId":"space-id","path":"/source.bin","name":"source.bin","size":4096}],
+		"output":{"mode":"download","fileName":"source.zip"},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/compressions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create compression status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+	if !strings.Contains(created.Output.DownloadURL, "token=") {
+		t.Fatalf("download URL does not contain token: %q", created.Output.DownloadURL)
+	}
+
+	res, err := http.Get(api.URL + created.Output.DownloadURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, res.Body)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusFailed {
+		t.Fatalf("job status = %s, want failed", done.Status)
+	}
+	if done.Code != "OUTPUT_TOO_LARGE" {
+		t.Fatalf("job code = %q, want OUTPUT_TOO_LARGE; error=%s", done.Code, done.Error)
 	}
 }
 

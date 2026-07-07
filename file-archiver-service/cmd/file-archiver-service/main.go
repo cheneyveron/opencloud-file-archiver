@@ -888,8 +888,18 @@ func (s *server) handleDownloadJob(w http.ResponseWriter, r *http.Request, id st
 	j.ctx, j.cancel = ctx, cancel
 	j.mu.Unlock()
 
+	writer := io.Writer(w)
+	if s.cfg.maxOutputBytes > 0 {
+		writer = &limitWriter{
+			ctx:       ctx,
+			w:         writer,
+			maxBytes:  s.cfg.maxOutputBytes,
+			limitCode: "OUTPUT_TOO_LARGE",
+		}
+	}
+
 	if err := s.withWorker(ctx, func() error {
-		return s.runCompressionToWriter(j, w)
+		return s.runCompressionToWriter(j, writer)
 	}); err != nil {
 		s.failJob(j, err)
 		return
