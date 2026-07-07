@@ -4,7 +4,7 @@
 existing OpenCloud deployment:
 
 - Mount `../web-app-file-archiver/dist` to `/web/apps/file-archiver`.
-- Run `file-archiver-service` as a separate container.
+- Run `file-archiver-service` as a separate container from the published GHCR image.
 - Route `/archive` to `file-archiver-service` through Traefik.
 
 Build the web extension before starting OpenCloud:
@@ -13,6 +13,12 @@ Build the web extension before starting OpenCloud:
 cd ../web-app-file-archiver
 pnpm install
 pnpm build
+```
+
+The service image is published on every relevant `main` branch push:
+
+```sh
+ghcr.io/cheneyveron/opencloud-file-archiver-service:main
 ```
 
 OpenCloud Web discovers apps under `WEB_ASSET_APPS_PATH` by reading each app's

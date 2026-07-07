@@ -6,8 +6,7 @@ services:
       - ../web-app-file-archiver/dist:/web/apps/file-archiver:ro
 
   file-archiver:
-    build:
-      context: ../file-archiver-service
+    image: ghcr.io/cheneyveron/opencloud-file-archiver-service:main
     environment:
       FILE_ARCHIVER_OPENCLOUD_URL: ${FILE_ARCHIVER_OPENCLOUD_URL:-https://host.docker.internal:9200}
       FILE_ARCHIVER_MAX_CONCURRENT_JOBS: ${FILE_ARCHIVER_MAX_CONCURRENT_JOBS:-2}
