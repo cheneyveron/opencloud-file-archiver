@@ -2622,8 +2622,11 @@ func (s *server) resolveConflict(ctx context.Context, dc *davClient, spaceID, de
 }
 
 func validateExtractionRequest(req *extractionRequest) error {
-	if req.Source.SpaceID == "" || req.Destination.SpaceID == "" {
-		return newError(http.StatusBadRequest, "BAD_REQUEST", "spaceId is required")
+	if err := validateSpaceID(req.Source.SpaceID, "source.spaceId"); err != nil {
+		return err
+	}
+	if err := validateSpaceID(req.Destination.SpaceID, "destination.spaceId"); err != nil {
+		return err
 	}
 	if req.Source.Name == "" {
 		req.Source.Name = path.Base(req.Source.Path)
@@ -2653,8 +2656,8 @@ func validateExtractionRequest(req *extractionRequest) error {
 }
 
 func validatePreviewRequest(req *previewRequest) error {
-	if req.Source.SpaceID == "" {
-		return newError(http.StatusBadRequest, "BAD_REQUEST", "source.spaceId is required")
+	if err := validateSpaceID(req.Source.SpaceID, "source.spaceId"); err != nil {
+		return err
 	}
 	if req.Source.Name == "" {
 		req.Source.Name = path.Base(req.Source.Path)
@@ -2682,8 +2685,8 @@ func validateCompressionRequest(req *compressionRequest) error {
 		return newError(http.StatusBadRequest, "BAD_REQUEST", "sources are required")
 	}
 	for i := range req.Sources {
-		if req.Sources[i].SpaceID == "" {
-			return newError(http.StatusBadRequest, "BAD_REQUEST", "source.spaceId is required")
+		if err := validateSpaceID(req.Sources[i].SpaceID, "source.spaceId"); err != nil {
+			return err
 		}
 		if err := validateDavPath(req.Sources[i].Path, "source.path"); err != nil {
 			return err
@@ -2713,8 +2716,8 @@ func validateCompressionRequest(req *compressionRequest) error {
 		return newError(http.StatusBadRequest, "BAD_REQUEST", "output.mode must be save or download")
 	}
 	if req.Output.Mode == outputSave {
-		if req.Output.Destination.SpaceID == "" {
-			return newError(http.StatusBadRequest, "BAD_REQUEST", "output.destination.spaceId is required")
+		if err := validateSpaceID(req.Output.Destination.SpaceID, "output.destination.spaceId"); err != nil {
+			return err
 		}
 		if req.Output.Destination.FolderPath == "" {
 			req.Output.Destination.FolderPath = req.Output.Destination.Path
@@ -2724,6 +2727,27 @@ func validateCompressionRequest(req *compressionRequest) error {
 		}
 	}
 	req.Conflicts = normalizeConflictPolicy(req.Conflicts)
+	return nil
+}
+
+func validateSpaceID(id, label string) error {
+	if id == "" {
+		return newError(http.StatusBadRequest, "BAD_REQUEST", label+" is required")
+	}
+	if len(id) > 512 {
+		return newError(http.StatusBadRequest, "BAD_REQUEST", label+" is too long")
+	}
+	if id == "." || id == ".." || strings.Contains(id, "..") {
+		return newError(http.StatusBadRequest, "BAD_REQUEST", label+" must not contain ..")
+	}
+	if strings.ContainsAny(id, `/\`) {
+		return newError(http.StatusBadRequest, "BAD_REQUEST", label+" must not contain path separators")
+	}
+	for _, r := range id {
+		if r == 0 || unicode.IsControl(r) {
+			return newError(http.StatusBadRequest, "BAD_REQUEST", label+" contains control characters")
+		}
+	}
 	return nil
 }
 

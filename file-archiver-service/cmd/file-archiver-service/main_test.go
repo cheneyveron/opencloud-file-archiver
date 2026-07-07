@@ -83,6 +83,19 @@ func TestValidateExtractionRejectsRAR(t *testing.T) {
 	}
 }
 
+func TestValidateSpaceID(t *testing.T) {
+	for _, id := range []string{"space", "space-id", "storage-users-1$1284d238-aa92"} {
+		if err := validateSpaceID(id, "spaceId"); err != nil {
+			t.Fatalf("validateSpaceID(%q) unexpected error: %v", id, err)
+		}
+	}
+	for _, id := range []string{"", "space/escape", `space\escape`, "..", "space..escape", "bad\x00id"} {
+		if err := validateSpaceID(id, "spaceId"); err == nil {
+			t.Fatalf("validateSpaceID(%q) expected error, got nil", id)
+		}
+	}
+}
+
 func TestZipHasWinZipAES(t *testing.T) {
 	var buf bytes.Buffer
 	zw := yzip.NewWriter(&buf)
