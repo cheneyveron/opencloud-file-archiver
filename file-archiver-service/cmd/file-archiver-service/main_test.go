@@ -537,6 +537,152 @@ func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 	}
 }
 
+func TestCreatePreviewUsesWorkerSemaphore(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("preview waits")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	for i := 0; i < cap(svc.sem); i++ {
+		svc.sem <- struct{}{}
+	}
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"}
+	}`
+	done := make(chan *http.Response, 1)
+	go func() {
+		done <- doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	}()
+
+	select {
+	case res := <-done:
+		data, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		t.Fatalf("preview completed while workers were occupied: status=%d body=%s", res.StatusCode, data)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	for i := 0; i < cap(svc.sem); i++ {
+		<-svc.sem
+	}
+	res := <-done
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+}
+
+func TestPreviewContentUsesWorkerSemaphore(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("content waits")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	if len(preview.Entries) == 0 {
+		t.Fatal("preview entries are empty")
+	}
+	fileEntry := previewEntry{}
+	for _, entry := range preview.Entries {
+		if !entry.IsDir {
+			fileEntry = entry
+			break
+		}
+	}
+	if fileEntry.ID == "" {
+		t.Fatalf("file entry not found in preview entries: %#v", preview.Entries)
+	}
+
+	for i := 0; i < cap(svc.sem); i++ {
+		svc.sem <- struct{}{}
+	}
+	done := make(chan *http.Response, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/content", nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		req.Header.Set("Authorization", "Bearer test-token")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		done <- res
+	}()
+
+	select {
+	case res := <-done:
+		data, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		t.Fatalf("preview content completed while workers were occupied: status=%d body=%s", res.StatusCode, data)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	for i := 0; i < cap(svc.sem); i++ {
+		<-svc.sem
+	}
+	res = <-done
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("content status = %d, body=%s", res.StatusCode, data)
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "content waits" {
+		t.Fatalf("preview content = %q", data)
+	}
+}
+
 func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
 	var archive bytes.Buffer
 	zw := yzip.NewWriter(&archive)

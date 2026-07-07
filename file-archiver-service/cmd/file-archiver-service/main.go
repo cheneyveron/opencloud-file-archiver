@@ -600,8 +600,12 @@ func (s *server) handleCreatePreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	entries, err := s.indexPreviewArchive(r.Context(), dc, input)
-	if err != nil {
+	var entries []previewEntry
+	if err := s.withWorker(r.Context(), func() error {
+		var err error
+		entries, err = s.indexPreviewArchive(r.Context(), dc, input)
+		return err
+	}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -728,21 +732,26 @@ func (s *server) handlePreviewEntryContent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	contentType := entry.MimeType
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
-	if download {
-		w.Header().Set("Content-Disposition", contentDisposition(entry.Name))
-	} else {
-		w.Header().Set("Content-Disposition", inlineContentDisposition(entry.Name))
-	}
-	if entry.Size >= 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
-	}
-	if err := s.writePreviewEntryContent(r.Context(), w, p, entry); err != nil {
-		log.Printf("preview content failed: preview=%s entry=%s err=%v", p.ID, entry.ID, err)
+	if err := s.withWorker(r.Context(), func() error {
+		contentType := entry.MimeType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
+		if download {
+			w.Header().Set("Content-Disposition", contentDisposition(entry.Name))
+		} else {
+			w.Header().Set("Content-Disposition", inlineContentDisposition(entry.Name))
+		}
+		if entry.Size >= 0 {
+			w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
+		}
+		if err := s.writePreviewEntryContent(r.Context(), w, p, entry); err != nil {
+			log.Printf("preview content failed: preview=%s entry=%s err=%v", p.ID, entry.ID, err)
+		}
+		return nil
+	}); err != nil {
+		writeError(w, err)
 	}
 }
 
