@@ -157,6 +157,37 @@ func TestDAVClientURLEncodesPathSegmentsOnce(t *testing.T) {
 	}
 }
 
+func TestDAVClientHeaderTimeout(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusMultiStatus)
+	}))
+	defer slow.Close()
+
+	svc, err := newServer(config{
+		opencloudURL:      slow.URL,
+		tmpDir:            t.TempDir(),
+		davHeaderTimeout:  50 * time.Millisecond,
+		davRequestTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc, err := svc.newDAVClient("Bearer test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	_, err = dc.stat(context.Background(), "space-id", "/file.txt")
+	if err == nil {
+		t.Fatal("stat unexpectedly succeeded")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("stat took %s, want timeout within 1s", elapsed)
+	}
+}
+
 func windowsFileTimeValue(t time.Time) uint64 {
 	const windowsToUnixSeconds = 11644473600
 	const ticksPerSecond = 10000000

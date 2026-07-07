@@ -26,6 +26,8 @@ RAR and ZipCrypto are intentionally not supported.
 | `FILE_ARCHIVER_MAX_PREVIEW_BYTES` | `50000000` | Maximum single entry size streamed for inline preview |
 | `FILE_ARCHIVER_MAX_ENTRIES` | `100000` | Maximum entries per job |
 | `FILE_ARCHIVER_MAX_CONCURRENT_JOBS` | `2` | Concurrent worker limit |
+| `FILE_ARCHIVER_DAV_REQUEST_TIMEOUT` | `6h` | Maximum duration for a single WebDAV request, including streamed bodies |
+| `FILE_ARCHIVER_DAV_HEADER_TIMEOUT` | `30s` | Maximum time to wait for WebDAV response headers |
 | `FILE_ARCHIVER_ZIP_AES_BUFFER_LIMIT` | `512000000` | AES ZIP compressed-entry size before using deferred auth |
 | `FILE_ARCHIVER_JOB_TTL` | `1h` | Finished job retention |
 

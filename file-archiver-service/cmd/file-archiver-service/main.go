@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,6 +60,8 @@ type config struct {
 	maxEntries        int
 	maxConcurrentJobs int
 	jobTTL            time.Duration
+	davRequestTimeout time.Duration
+	davHeaderTimeout  time.Duration
 	aesBufferLimit    uint64
 	rangeBlockSize    int64
 }
@@ -245,9 +248,10 @@ type subscriber struct {
 }
 
 type davClient struct {
-	base       *url.URL
-	httpClient *http.Client
-	auth       string
+	base           *url.URL
+	httpClient     *http.Client
+	auth           string
+	requestTimeout time.Duration
 }
 
 type davResource struct {
@@ -341,6 +345,8 @@ func loadConfig() config {
 		maxEntries:        int(envInt64("FILE_ARCHIVER_MAX_ENTRIES", 100000, "ARCHIVE_MAX_ENTRIES")),
 		maxConcurrentJobs: int(envInt64("FILE_ARCHIVER_MAX_CONCURRENT_JOBS", 2, "ARCHIVE_MAX_CONCURRENT_JOBS")),
 		jobTTL:            envDuration("FILE_ARCHIVER_JOB_TTL", time.Hour, "ARCHIVE_JOB_TTL"),
+		davRequestTimeout: envDuration("FILE_ARCHIVER_DAV_REQUEST_TIMEOUT", 6*time.Hour, "ARCHIVE_DAV_REQUEST_TIMEOUT"),
+		davHeaderTimeout:  envDuration("FILE_ARCHIVER_DAV_HEADER_TIMEOUT", 30*time.Second, "ARCHIVE_DAV_HEADER_TIMEOUT"),
 		aesBufferLimit:    uint64(envInt64("FILE_ARCHIVER_ZIP_AES_BUFFER_LIMIT", 512*1000*1000, "ARCHIVE_ZIP_AES_BUFFER_LIMIT")),
 		rangeBlockSize:    envInt64("FILE_ARCHIVER_RANGE_BLOCK_BYTES", 1024*1024, "ARCHIVE_RANGE_BLOCK_BYTES"),
 	}
@@ -359,14 +365,34 @@ func newServer(cfg config) (*server, error) {
 	if cfg.rangeBlockSize > 64*1024*1024 {
 		cfg.rangeBlockSize = 64 * 1024 * 1024
 	}
+	if cfg.davRequestTimeout <= 0 {
+		cfg.davRequestTimeout = 6 * time.Hour
+	}
+	if cfg.davHeaderTimeout <= 0 {
+		cfg.davHeaderTimeout = 30 * time.Second
+	}
 	return &server{
 		cfg:         cfg,
-		httpClient:  &http.Client{},
+		httpClient:  newDAVHTTPClient(cfg),
 		sem:         make(chan struct{}, cfg.maxConcurrentJobs),
 		jobs:        map[string]*job{},
 		previews:    map[string]*previewSession{},
 		subscribers: map[int]subscriber{},
 	}, nil
+}
+
+func newDAVHTTPClient(cfg config) *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = dialer.DialContext
+	transport.ResponseHeaderTimeout = cfg.davHeaderTimeout
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.ExpectContinueTimeout = time.Second
+	transport.IdleConnTimeout = 90 * time.Second
+	return &http.Client{Transport: transport}
 }
 
 func envString(name, fallback string, aliases ...string) string {
@@ -2197,7 +2223,7 @@ func (s *server) newDAVClient(auth string) (*davClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &davClient{base: base, httpClient: s.httpClient, auth: auth}, nil
+	return &davClient{base: base, httpClient: s.httpClient, auth: auth, requestTimeout: s.cfg.davRequestTimeout}, nil
 }
 
 func (c *davClient) url(spaceID, p string) string {
@@ -2222,8 +2248,12 @@ func davURLSuffix(spaceID, p string) (string, string) {
 }
 
 func (c *davClient) do(ctx context.Context, method, spaceID, p string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	ctx, cancel := c.withRequestTimeout(ctx)
 	req, err := http.NewRequestWithContext(ctx, method, c.url(spaceID, p), body)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, err
 	}
 	req.Header.Set("Authorization", c.auth)
@@ -2232,10 +2262,16 @@ func (c *davClient) do(ctx context.Context, method, spaceID, p string, body io.R
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		return nil, err
+	}
+	if cancel != nil {
+		resp.Body = cancelReadCloser{ReadCloser: resp.Body, cancel: cancel}
 	}
 	return resp, nil
 }
@@ -2302,6 +2338,10 @@ func (c *davClient) getRange(ctx context.Context, spaceID, p string, off, length
 }
 
 func (c *davClient) put(ctx context.Context, spaceID, p string, body io.Reader, contentType string, contentLength int64) error {
+	ctx, cancel := c.withRequestTimeout(ctx)
+	if cancel != nil {
+		defer cancel()
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.url(spaceID, p), contextReader{ctx: ctx, r: body})
 	if err != nil {
 		return err
@@ -2323,6 +2363,24 @@ func (c *davClient) put(ctx context.Context, spaceID, p string, body io.Reader, 
 		return davStatusError(resp, "UPLOAD_FAILED")
 	}
 	return nil
+}
+
+func (c *davClient) withRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.requestTimeout <= 0 {
+		return ctx, nil
+	}
+	return context.WithTimeout(ctx, c.requestTimeout)
+}
+
+type cancelReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (r cancelReadCloser) Close() error {
+	err := r.ReadCloser.Close()
+	r.cancel()
+	return err
 }
 
 func (c *davClient) delete(ctx context.Context, spaceID, p string) error {
