@@ -261,6 +261,56 @@ func TestZipExtractionJobWithFakeWebDAV(t *testing.T) {
 	}
 }
 
+func TestZipExtractionDefaultsToKeepBothOnFileConflict(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("dir/file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("archive content")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/archive.zip", archive.Bytes())
+	fake.putFile("/out/dir/file.txt", []byte("existing content"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"}
+	}`
+	res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusSucceeded {
+		t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+	}
+	if got := string(fake.file("/out/dir/file.txt")); got != "existing content" {
+		t.Fatalf("existing content = %q, want unchanged", got)
+	}
+	if got := string(fake.file("/out/dir/file (1).txt")); got != "archive content" {
+		t.Fatalf("renamed content = %q", got)
+	}
+}
+
 func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 	var archive bytes.Buffer
 	zw := zip.NewWriter(&archive)
