@@ -465,7 +465,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(pathname, "/api/jobs/"):
 		s.handleGetJob(w, r, strings.TrimPrefix(pathname, "/api/jobs/"))
 	case r.Method == http.MethodDelete && strings.HasPrefix(pathname, "/api/jobs/"):
-		s.handleCancelJob(w, r, strings.TrimPrefix(pathname, "/api/jobs/"))
+		s.handleDeleteJob(w, r, strings.TrimPrefix(pathname, "/api/jobs/"))
 	case r.Method == http.MethodPost && strings.HasPrefix(pathname, "/api/previews/") && strings.Contains(pathname, "/entries/") && strings.HasSuffix(pathname, "/download"):
 		previewID, entryID := splitPreviewDownloadPath(pathname)
 		s.handleCreatePreviewEntryDownload(w, r, previewID, entryID)
@@ -481,7 +481,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(pathname, "/api/extractions/"):
 		s.handleGetJob(w, r, strings.TrimPrefix(pathname, "/api/extractions/"))
 	case r.Method == http.MethodDelete && strings.HasPrefix(pathname, "/api/extractions/"):
-		s.handleCancelJob(w, r, strings.TrimPrefix(pathname, "/api/extractions/"))
+		s.handleDeleteJob(w, r, strings.TrimPrefix(pathname, "/api/extractions/"))
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"code": "NOT_FOUND", "error": "Not found"})
 	}
@@ -773,10 +773,24 @@ func (s *server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 }
 
-func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request, id string) {
+func (s *server) handleDeleteJob(w http.ResponseWriter, r *http.Request, id string) {
 	j, err := s.getAuthorizedJob(r, id)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	j.mu.Lock()
+	terminal := j.Status == statusSucceeded || j.Status == statusFailed || j.Status == statusCancelled
+	j.mu.Unlock()
+	if terminal {
+		payload := s.publicJob(j)
+		s.mu.Lock()
+		if s.jobs[j.ID] == j {
+			delete(s.jobs, j.ID)
+		}
+		s.mu.Unlock()
+		j.cancel()
+		writeJSON(w, http.StatusOK, payload)
 		return
 	}
 	j.cancel()

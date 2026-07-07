@@ -111,8 +111,10 @@ export function useArchiveJobs(applicationConfig: ArchiveConfig = {}) {
     await refreshJobs()
   }
 
-  function dismissJob(job: ArchiveJob) {
+  async function dismissJob(job: ArchiveJob) {
+    await requestJson(`/api/jobs/${encodeURIComponent(job.id)}`, { method: 'DELETE' })
     dismissed.value = new Set([...unref(dismissed), job.id])
+    await refreshJobs()
   }
 
   const visibleJobs = computed(() => {

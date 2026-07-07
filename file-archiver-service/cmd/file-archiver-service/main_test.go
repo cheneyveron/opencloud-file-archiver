@@ -311,6 +311,89 @@ func TestZipExtractionDefaultsToKeepBothOnFileConflict(t *testing.T) {
 	}
 }
 
+func TestDeleteTerminalJobRemovesItFromList(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("content")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"}
+	}`
+	res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusSucceeded {
+		t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+	}
+
+	listed := listJobs(t, api.URL)
+	if len(listed) != 1 || listed[0].ID != created.ID {
+		t.Fatalf("listed jobs = %#v, want created job", listed)
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, api.URL+"/api/jobs/"+created.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("delete job status = %d, body=%s", res.StatusCode, data)
+	}
+	_ = res.Body.Close()
+
+	listed = listJobs(t, api.URL)
+	if len(listed) != 0 {
+		t.Fatalf("listed jobs after delete = %#v, want none", listed)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, api.URL+"/api/jobs/"+created.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("get deleted job status = %d, body=%s", res.StatusCode, data)
+	}
+}
+
 func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 	var archive bytes.Buffer
 	zw := zip.NewWriter(&archive)
@@ -800,6 +883,29 @@ func waitJob(t *testing.T, baseURL, id string) publicJob {
 	}
 	t.Fatal("timed out waiting for job")
 	return publicJob{}
+}
+
+func listJobs(t *testing.T, baseURL string) []publicJob {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/jobs", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("list jobs status = %d, body=%s", res.StatusCode, data)
+	}
+	var payload struct {
+		Jobs []publicJob `json:"jobs"`
+	}
+	decodeJSON(t, res.Body, &payload)
+	return payload.Jobs
 }
 
 func decodeJSON(t *testing.T, r io.Reader, out any) {
