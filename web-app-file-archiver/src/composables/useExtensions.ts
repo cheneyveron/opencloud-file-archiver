@@ -2,6 +2,7 @@ import {
   ActionExtension,
   ApplicationSetupOptions,
   CustomComponentExtension,
+  useEmbedMode,
 } from "@opencloud-eu/web-pkg";
 import { computed, markRaw, unref } from "vue";
 import ArchiveTaskPanel from "../components/ArchiveTaskPanel.vue";
@@ -17,6 +18,7 @@ export const useExtensions = ({
   const extractArchiveAction = useUnzipAction(applicationConfig);
   const createArchiveAction = useCreateArchiveAction(applicationConfig);
   const downloadArchiveAction = useDownloadArchiveAction(applicationConfig);
+  const { isEnabled: isEmbedModeEnabled } = useEmbedMode();
 
   const extractArchiveActionExtension = computed<ActionExtension>(() => {
     return {
@@ -55,10 +57,17 @@ export const useExtensions = ({
     };
   });
 
-  return computed(() => [
-    unref(createArchiveActionExtension),
-    unref(downloadArchiveActionExtension),
-    unref(extractArchiveActionExtension),
-    unref(taskPanelExtension),
-  ]);
+  return computed<(ActionExtension | CustomComponentExtension)[]>(() => {
+    const extensions: (ActionExtension | CustomComponentExtension)[] = [
+      unref(createArchiveActionExtension),
+      unref(downloadArchiveActionExtension),
+      unref(extractArchiveActionExtension),
+    ];
+
+    if (!unref(isEmbedModeEnabled)) {
+      extensions.push(unref(taskPanelExtension));
+    }
+
+    return extensions;
+  });
 };
