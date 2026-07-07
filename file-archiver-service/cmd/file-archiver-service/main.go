@@ -927,7 +927,8 @@ func (s *server) extractArchive(j *job) error {
 	})
 	switch detectArchiveKind(req.Source.Name, req.Source.MimeType) {
 	case "zip":
-		size, err := s.prepareRandomAccessSource(j, dc, req.Source)
+		var size int64
+		size, err = s.prepareRandomAccessSource(j, dc, req.Source)
 		if err != nil {
 			return err
 		}
@@ -942,7 +943,8 @@ func (s *server) extractArchive(j *job) error {
 	case "gz":
 		err = s.extractGzipSingleFromWebDAV(j, dc)
 	case "7z":
-		size, err := s.prepareRandomAccessSource(j, dc, req.Source)
+		var size int64
+		size, err = s.prepareRandomAccessSource(j, dc, req.Source)
 		if err != nil {
 			return err
 		}

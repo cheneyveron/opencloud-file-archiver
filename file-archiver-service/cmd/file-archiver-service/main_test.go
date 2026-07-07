@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
@@ -416,6 +417,78 @@ func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
 	decodeJSON(t, res.Body, &payload)
 	if payload["code"] != "PASSWORD_REQUIRED" {
 		t.Fatalf("code = %q, want PASSWORD_REQUIRED", payload["code"])
+	}
+}
+
+func TestZipExtractionEncryptedArchiveRequiresPassword(t *testing.T) {
+	var archive bytes.Buffer
+	zw := yzip.NewWriter(&archive)
+	if _, err := zw.Create("seven-out/"); err != nil {
+		t.Fatal(err)
+	}
+	w, err := zw.Encrypt("seven-out/seven.txt", "password", yzip.AES256Encryption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("encrypted content")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/secret.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	dc, err := svc.newDAVClient("Bearer test-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rangeReader := dc.readerAt(context.Background(), "space-id", "/secret.zip", int64(archive.Len()), 4096, nil)
+	rangeZip, err := yzip.NewReader(rangeReader, int64(archive.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rangeZip.File) != 2 {
+		t.Fatalf("range file count = %d, want 2", len(rangeZip.File))
+	}
+	if rangeZip.File[1].FileInfo().IsDir() {
+		t.Fatalf("range file %q is incorrectly marked as a directory", rangeZip.File[1].Name)
+	}
+	if !rangeZip.File[1].IsEncrypted() {
+		t.Fatalf("range file %q is not marked encrypted, flags=%d method=%d extra=%x", rangeZip.File[1].Name, rangeZip.File[1].Flags, rangeZip.File[1].Method, rangeZip.File[1].Extra)
+	}
+
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/secret.zip","name":"secret.zip","mimeType":"application/zip"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusFailed {
+		t.Fatalf("job status = %s, want failed", done.Status)
+	}
+	if done.Code != "PASSWORD_REQUIRED" {
+		t.Fatalf("job code = %q, want PASSWORD_REQUIRED; error=%s", done.Code, done.Error)
+	}
+	if got := fake.file("/out/seven-out/seven.txt"); got != nil {
+		t.Fatalf("encrypted file was extracted without password: %q", got)
 	}
 }
 
