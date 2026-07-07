@@ -268,6 +268,11 @@ type archiveEntry struct {
 	ModTime time.Time
 }
 
+type compressionPlan struct {
+	entries []archiveEntry
+	total   int64
+}
+
 type multistatusXML struct {
 	Responses []responseXML `xml:"response"`
 }
@@ -2016,8 +2021,7 @@ func (s *server) runCompressionToWriter(j *job, w io.Writer) error {
 
 func (s *server) buildCompressionPlan(j *job, dc *davClient) ([]archiveEntry, int64, error) {
 	req := j.Compression
-	var entries []archiveEntry
-	var total int64
+	plan := &compressionPlan{}
 	for _, src := range req.Sources {
 		if src.Name == "" {
 			src.Name = path.Base(src.Path)
@@ -2026,49 +2030,51 @@ func (s *server) buildCompressionPlan(j *job, dc *davClient) ([]archiveEntry, in
 		if err != nil {
 			return nil, 0, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected source name %q: %v", src.Name, err))
 		}
-		next, err := s.walkCompressionSource(j.ctx, dc, src.SpaceID, src.Path, baseName)
-		if err != nil {
+		if err := s.walkCompressionSource(j.ctx, dc, src.SpaceID, src.Path, baseName, plan); err != nil {
 			return nil, 0, err
 		}
-		for _, entry := range next {
-			entries = append(entries, entry)
-			if !entry.IsDir {
-				total += entry.Size
-			}
-			if len(entries) > s.cfg.maxEntries {
-				return nil, 0, newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Selection contains too many entries")
-			}
-		}
 	}
-	return entries, total, nil
+	return plan.entries, plan.total, nil
 }
 
-func (s *server) walkCompressionSource(ctx context.Context, dc *davClient, spaceID, resourcePath, entryName string) ([]archiveEntry, error) {
+func (s *server) addCompressionPlanEntry(plan *compressionPlan, entry archiveEntry) error {
+	if s.cfg.maxEntries >= 0 && len(plan.entries) >= s.cfg.maxEntries {
+		return newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Selection contains too many entries")
+	}
+	plan.entries = append(plan.entries, entry)
+	if !entry.IsDir {
+		plan.total += entry.Size
+	}
+	return nil
+}
+
+func (s *server) walkCompressionSource(ctx context.Context, dc *davClient, spaceID, resourcePath, entryName string, plan *compressionPlan) error {
 	info, err := dc.stat(ctx, spaceID, resourcePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	info.Name = entryName
 	if !info.IsDir {
-		return []archiveEntry{{
+		return s.addCompressionPlanEntry(plan, archiveEntry{
 			SpaceID: spaceID,
 			Path:    resourcePath,
 			Name:    entryName,
 			Size:    info.Size,
 			ModTime: info.ModTime,
-		}}, nil
+		})
 	}
 
-	entries := []archiveEntry{{
+	if err := s.addCompressionPlanEntry(plan, archiveEntry{
 		SpaceID: spaceID,
 		Path:    resourcePath,
 		Name:    ensureTrailingSlash(entryName),
 		IsDir:   true,
 		ModTime: info.ModTime,
-	}}
+	}); err != nil {
+		return err
+	}
 	children, err := dc.list(ctx, spaceID, resourcePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, child := range children {
 		if child.Path == resourcePath || child.Name == ".oc-nodes" {
@@ -2076,16 +2082,14 @@ func (s *server) walkCompressionSource(ctx context.Context, dc *davClient, space
 		}
 		childName, err := safeArchivePath(child.Name)
 		if err != nil {
-			return nil, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected source name %q: %v", child.Name, err))
+			return newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected source name %q: %v", child.Name, err))
 		}
 		childEntryName := path.Join(strings.TrimSuffix(entryName, "/"), childName)
-		next, err := s.walkCompressionSource(ctx, dc, spaceID, child.Path, childEntryName)
-		if err != nil {
-			return nil, err
+		if err := s.walkCompressionSource(ctx, dc, spaceID, child.Path, childEntryName, plan); err != nil {
+			return err
 		}
-		entries = append(entries, next...)
 	}
-	return entries, nil
+	return nil
 }
 
 func (s *server) writeZip(j *job, dc *davClient, entries []archiveEntry, w io.Writer) error {

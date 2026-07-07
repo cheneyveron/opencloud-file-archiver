@@ -1022,6 +1022,46 @@ func TestCompressionDownloadJobEnforcesOutputLimit(t *testing.T) {
 	}
 }
 
+func TestCompressionPlanStopsWalkingAfterEntryLimit(t *testing.T) {
+	fake := newFakeDAV()
+	fake.putFile("/folder/a.txt", []byte("a"))
+	fake.putFile("/folder/b.txt", []byte("b"))
+	fake.putFile("/folder/c.txt", []byte("c"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	svc.cfg.maxEntries = 1
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"format":"zip",
+		"sources":[{"spaceId":"space-id","path":"/folder","name":"folder"}],
+		"output":{"mode":"save","destination":{"spaceId":"space-id","folderPath":"/archives","fileName":"folder.zip"}},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/compressions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create compression status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusFailed {
+		t.Fatalf("job status = %s, want failed", done.Status)
+	}
+	if done.Code != "TOO_MANY_ENTRIES" {
+		t.Fatalf("job code = %q, want TOO_MANY_ENTRIES; error=%s", done.Code, done.Error)
+	}
+	if got := fake.propfindCallCount("/folder/", "0"); got != 1 {
+		t.Fatalf("child stat PROPFIND count = %d, want 1", got)
+	}
+}
+
 func newTestArchiveServer(t *testing.T, opencloudURL string) *server {
 	t.Helper()
 	svc, err := newServer(config{
@@ -1118,6 +1158,12 @@ type fakeDAV struct {
 	dirs                    map[string]bool
 	spaceID                 string
 	requirePutContentLength bool
+	propfindCalls           []propfindCall
+}
+
+type propfindCall struct {
+	path  string
+	depth string
 }
 
 func newFakeDAV() *fakeDAV {
@@ -1160,6 +1206,18 @@ func (f *fakeDAV) file(p string) []byte {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]byte(nil), f.files[cleanDavPath(p)]...)
+}
+
+func (f *fakeDAV) propfindCallCount(prefix, depth string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count := 0
+	for _, call := range f.propfindCalls {
+		if call.depth == depth && strings.HasPrefix(call.path, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 func (f *fakeDAV) handleGet(w http.ResponseWriter, r *http.Request, p string) {
@@ -1272,6 +1330,7 @@ func (f *fakeDAV) handlePropfind(w http.ResponseWriter, r *http.Request, p strin
 	depth := r.Header.Get("Depth")
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.propfindCalls = append(f.propfindCalls, propfindCall{path: p, depth: depth})
 	var paths []string
 	if f.existsLocked(p) {
 		paths = append(paths, p)
