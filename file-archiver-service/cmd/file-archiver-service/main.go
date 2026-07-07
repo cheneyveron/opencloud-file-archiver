@@ -62,6 +62,7 @@ type config struct {
 	jobTTL            time.Duration
 	davRequestTimeout time.Duration
 	davHeaderTimeout  time.Duration
+	downloadTokenTTL  time.Duration
 	aesBufferLimit    uint64
 	rangeBlockSize    int64
 }
@@ -184,16 +185,17 @@ type publicPreview struct {
 type job struct {
 	mu sync.Mutex
 
-	ID            string
-	Type          string
-	Status        string
-	Stage         string
-	Format        string
-	Code          string
-	Error         string
-	Authorization string
-	AuthHash      string
-	DownloadToken string
+	ID             string
+	Type           string
+	Status         string
+	Stage          string
+	Format         string
+	Code           string
+	Error          string
+	Authorization  string
+	AuthHash       string
+	DownloadToken  string
+	TokenExpiresAt time.Time
 
 	Extraction  *extractionRequest
 	Compression *compressionRequest
@@ -225,9 +227,14 @@ type previewSession struct {
 	Source        sourceRef
 	Entries       []previewEntry
 	EntryByID     map[string]previewEntry
-	DownloadToken map[string]string
+	DownloadToken map[string]downloadToken
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+}
+
+type downloadToken struct {
+	EntryID   string
+	ExpiresAt time.Time
 }
 
 type server struct {
@@ -347,6 +354,7 @@ func loadConfig() config {
 		jobTTL:            envDuration("FILE_ARCHIVER_JOB_TTL", time.Hour, "ARCHIVE_JOB_TTL"),
 		davRequestTimeout: envDuration("FILE_ARCHIVER_DAV_REQUEST_TIMEOUT", 6*time.Hour, "ARCHIVE_DAV_REQUEST_TIMEOUT"),
 		davHeaderTimeout:  envDuration("FILE_ARCHIVER_DAV_HEADER_TIMEOUT", 30*time.Second, "ARCHIVE_DAV_HEADER_TIMEOUT"),
+		downloadTokenTTL:  envDuration("FILE_ARCHIVER_DOWNLOAD_TOKEN_TTL", 10*time.Minute, "ARCHIVE_DOWNLOAD_TOKEN_TTL"),
 		aesBufferLimit:    uint64(envInt64("FILE_ARCHIVER_ZIP_AES_BUFFER_LIMIT", 512*1000*1000, "ARCHIVE_ZIP_AES_BUFFER_LIMIT")),
 		rangeBlockSize:    envInt64("FILE_ARCHIVER_RANGE_BLOCK_BYTES", 1024*1024, "ARCHIVE_RANGE_BLOCK_BYTES"),
 	}
@@ -370,6 +378,9 @@ func newServer(cfg config) (*server, error) {
 	}
 	if cfg.davHeaderTimeout <= 0 {
 		cfg.davHeaderTimeout = 30 * time.Second
+	}
+	if cfg.downloadTokenTTL <= 0 {
+		cfg.downloadTokenTTL = 10 * time.Minute
 	}
 	return &server{
 		cfg:         cfg,
@@ -601,6 +612,7 @@ func (s *server) handleCreateCompression(w http.ResponseWriter, r *http.Request)
 	}
 	if input.Output.Mode == outputDownload {
 		j.DownloadToken = randomID()
+		j.TokenExpiresAt = time.Now().Add(s.cfg.downloadTokenTTL)
 		j.Output.DownloadURL = downloadJobURL(j)
 	}
 	s.addJob(j)
@@ -655,7 +667,7 @@ func (s *server) handleCreatePreview(w http.ResponseWriter, r *http.Request) {
 		Source:        input.Source,
 		Entries:       entries,
 		EntryByID:     map[string]previewEntry{},
-		DownloadToken: map[string]string{},
+		DownloadToken: map[string]downloadToken{},
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -727,7 +739,7 @@ func (s *server) handleCreatePreviewEntryDownload(w http.ResponseWriter, r *http
 		return
 	}
 	token := randomID()
-	p.addDownloadToken(token, entry.ID)
+	p.addDownloadToken(token, entry.ID, time.Now().Add(s.cfg.downloadTokenTTL))
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"downloadUrl": previewEntryDownloadURL(p.ID, entry.ID, token),
 	})
@@ -2808,7 +2820,7 @@ func (s *server) getPreviewForEntryContent(r *http.Request, encodedPreviewID, en
 		if p == nil {
 			return nil, newError(http.StatusNotFound, "NOT_FOUND", "Archive preview not found")
 		}
-		if !p.downloadTokenMatches(token, entryID) {
+		if !p.consumeDownloadToken(token, entryID, time.Now()) {
 			return nil, newError(http.StatusForbidden, "FORBIDDEN", "Invalid download token")
 		}
 		p.mu.Lock()
@@ -2841,18 +2853,24 @@ func (p *previewSession) entryByID(id string) (previewEntry, bool) {
 	return entry, ok
 }
 
-func (p *previewSession) addDownloadToken(token, entryID string) {
+func (p *previewSession) addDownloadToken(token, entryID string, expiresAt time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.DownloadToken[token] = entryID
+	p.DownloadToken[token] = downloadToken{EntryID: entryID, ExpiresAt: expiresAt}
 	p.UpdatedAt = time.Now()
 }
 
-func (p *previewSession) downloadTokenMatches(token, entryID string) bool {
+func (p *previewSession) consumeDownloadToken(token, entryID string, now time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	expected := p.DownloadToken[token]
-	return expected != "" && subtle.ConstantTimeCompare([]byte(expected), []byte(entryID)) == 1
+	expected, ok := p.DownloadToken[token]
+	if ok {
+		delete(p.DownloadToken, token)
+	}
+	if !ok || expected.EntryID == "" || now.After(expected.ExpiresAt) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected.EntryID), []byte(entryID)) == 1
 }
 
 func (p *previewSession) entriesByParent(parent string) []previewEntry {
@@ -2899,8 +2917,9 @@ func (s *server) getDownloadJob(r *http.Request, encodedID string) (*job, error)
 	}
 	j.mu.Lock()
 	expected := j.DownloadToken
+	expiresAt := j.TokenExpiresAt
 	j.mu.Unlock()
-	if expected == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
+	if expected == "" || time.Now().After(expiresAt) || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
 		return nil, newError(http.StatusForbidden, "FORBIDDEN", "Invalid download token")
 	}
 	return j, nil
@@ -2983,6 +3002,7 @@ func (s *server) finishJob(j *job, output outputInfo) {
 		}
 		now := time.Now()
 		j.FinishedAt = &now
+		j.clearSecretsLocked()
 	})
 }
 
@@ -3004,6 +3024,7 @@ func (s *server) failJob(j *job, err error) {
 		j.Error = message
 		now := time.Now()
 		j.FinishedAt = &now
+		j.clearSecretsLocked()
 	})
 }
 
@@ -3014,6 +3035,7 @@ func (s *server) cancelJob(j *job) {
 		j.Code = "CANCELLED"
 		now := time.Now()
 		j.FinishedAt = &now
+		j.clearSecretsLocked()
 	})
 }
 
@@ -3023,10 +3045,24 @@ func (s *server) markDownloadStarting(j *job) bool {
 		if j.Status == statusQueued {
 			j.Status = statusRunning
 			j.Stage = "waiting"
+			j.DownloadToken = ""
+			j.TokenExpiresAt = time.Time{}
 			ok = true
 		}
 	})
 	return ok
+}
+
+func (j *job) clearSecretsLocked() {
+	j.Authorization = ""
+	j.DownloadToken = ""
+	j.TokenExpiresAt = time.Time{}
+	if j.Extraction != nil {
+		j.Extraction.Password = ""
+	}
+	if j.Compression != nil && j.Compression.Encryption != nil {
+		j.Compression.Encryption.Password = ""
+	}
 }
 
 func (s *server) addSubscriber(sub subscriber) int {

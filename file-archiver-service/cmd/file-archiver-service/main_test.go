@@ -544,7 +544,8 @@ func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 		t.Fatal("download url is empty")
 	}
 
-	req, err = http.NewRequest(http.MethodGet, api.URL+strings.TrimPrefix(download.DownloadURL, "/archive"), nil)
+	entryDownloadURL := api.URL + strings.TrimPrefix(download.DownloadURL, "/archive")
+	req, err = http.NewRequest(http.MethodGet, entryDownloadURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,6 +567,20 @@ func TestZipPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 	}
 	if string(data) != "preview me" {
 		t.Fatalf("download content = %q", data)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, entryDownloadURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("second download status = %d, body=%s", res.StatusCode, data)
 	}
 }
 
@@ -1050,6 +1065,101 @@ func TestCompressionDownloadJobEnforcesOutputLimit(t *testing.T) {
 	}
 	if done.Code != "OUTPUT_TOO_LARGE" {
 		t.Fatalf("job code = %q, want OUTPUT_TOO_LARGE; error=%s", done.Code, done.Error)
+	}
+}
+
+func TestCompressionDownloadTokenExpires(t *testing.T) {
+	fake := newFakeDAV()
+	fake.putFile("/source.txt", []byte("expired token"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	svc.cfg.downloadTokenTTL = 50 * time.Millisecond
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"format":"zip",
+		"sources":[{"spaceId":"space-id","path":"/source.txt","name":"source.txt","size":13}],
+		"output":{"mode":"download","fileName":"source.zip"},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/compressions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create compression status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+	if !strings.Contains(created.Output.DownloadURL, "token=") {
+		t.Fatalf("download URL does not contain token: %q", created.Output.DownloadURL)
+	}
+
+	time.Sleep(75 * time.Millisecond)
+	res, err := http.Get(api.URL + created.Output.DownloadURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("download status = %d, body=%s", res.StatusCode, data)
+	}
+}
+
+func TestTerminalJobClearsSecrets(t *testing.T) {
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/source.txt", []byte("secret cleanup"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"format":"zip",
+		"sources":[{"spaceId":"space-id","path":"/source.txt","name":"source.txt","size":14}],
+		"encryption":{"method":"zip-aes256","password":"archive-password"},
+		"output":{"mode":"save","destination":{"spaceId":"space-id","folderPath":"/archives","fileName":"source.zip"}},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/compressions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create compression status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusSucceeded {
+		t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+	}
+
+	svc.mu.RLock()
+	stored := svc.jobs[created.ID]
+	svc.mu.RUnlock()
+	if stored == nil {
+		t.Fatal("stored job not found")
+	}
+	stored.mu.Lock()
+	auth := stored.Authorization
+	token := stored.DownloadToken
+	password := stored.Compression.Encryption.Password
+	stored.mu.Unlock()
+	if auth != "" {
+		t.Fatalf("authorization was not cleared: %q", auth)
+	}
+	if token != "" {
+		t.Fatalf("download token was not cleared: %q", token)
+	}
+	if password != "" {
+		t.Fatalf("encryption password was not cleared: %q", password)
 	}
 }
 
