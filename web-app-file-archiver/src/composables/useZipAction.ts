@@ -21,10 +21,11 @@ const DEFAULT_ARCHIVE_NAME = 'archive'
 
 type ArchiveFormat = 'zip' | 'tar.gz'
 
-type ArchiveConfig = AppConfigObject & {
+export type ArchiveConfig = AppConfigObject & {
   fileArchiverServiceUrl?: string
   archiveServiceUrl?: string
   unarchiveServiceUrl?: string
+  fileArchiverUseNestedActions?: boolean
 }
 
 type ZipActionOptions = {
@@ -247,7 +248,12 @@ const useCreateZipAction = (
     archiveFileName: string
     password?: string
   }) {
-    const job = await createCompressionJob({ space, resources, archiveFileName, password })
+    const job = await createCompressionJob({
+      space,
+      resources,
+      archiveFileName,
+      password
+    })
     window.location.assign(getDownloadUrl(applicationConfig, job))
   }
 
@@ -265,9 +271,17 @@ const useCreateZipAction = (
     const archiveFileName = getArchiveFileName(resources, resourcesStore.resources, format)
     if (download) {
       try {
-        await createDownloadArchive({ space, resources, archiveFileName, password })
+        await createDownloadArchive({
+          space,
+          resources,
+          archiveFileName,
+          password
+        })
       } catch (error) {
-        showErrorMessage({ title: $gettext('Failed to create archive'), errors: [error] })
+        showErrorMessage({
+          title: $gettext('Failed to create archive'),
+          errors: [error]
+        })
       }
       return
     }
@@ -402,6 +416,21 @@ export const useCreateArchiveAction = (applicationConfig: ArchiveConfig = {}) =>
   })
 }
 
+export const useCreateArchiveActions = (applicationConfig: ArchiveConfig = {}) => {
+  const nestedAction = useCreateArchiveAction(applicationConfig)
+  const zipAction = useZipAction(applicationConfig)
+  const encryptedZipAction = useEncryptedZipAction(applicationConfig)
+  const tarGzipAction = useTarGzipAction(applicationConfig)
+
+  return computed<FileAction[]>(() => {
+    if (applicationConfig.fileArchiverUseNestedActions === true) {
+      return [unref(nestedAction)]
+    }
+
+    return [unref(zipAction), unref(encryptedZipAction), unref(tarGzipAction)]
+  })
+}
+
 export const useDownloadArchiveAction = (applicationConfig: ArchiveConfig = {}) => {
   const { $gettext } = useGettext()
   const zipAction = useDownloadZipAction(applicationConfig)
@@ -418,5 +447,20 @@ export const useDownloadArchiveAction = (applicationConfig: ArchiveConfig = {}) 
       children,
       class: 'oc-files-actions-download-archive'
     }
+  })
+}
+
+export const useDownloadArchiveActions = (applicationConfig: ArchiveConfig = {}) => {
+  const nestedAction = useDownloadArchiveAction(applicationConfig)
+  const zipAction = useDownloadZipAction(applicationConfig)
+  const encryptedZipAction = useDownloadEncryptedZipAction(applicationConfig)
+  const tarGzipAction = useDownloadTarGzipAction(applicationConfig)
+
+  return computed<FileAction[]>(() => {
+    if (applicationConfig.fileArchiverUseNestedActions === true) {
+      return [unref(nestedAction)]
+    }
+
+    return [unref(zipAction), unref(encryptedZipAction), unref(tarGzipAction)]
   })
 }

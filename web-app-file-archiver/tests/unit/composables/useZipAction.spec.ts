@@ -5,7 +5,9 @@ import { mock } from 'vitest-mock-extended'
 import { unref } from 'vue'
 import {
   useCreateArchiveAction,
+  useCreateArchiveActions,
   useDownloadArchiveAction,
+  useDownloadArchiveActions,
   useDownloadZipAction,
   useEncryptedZipAction,
   useTarGzipAction,
@@ -127,6 +129,49 @@ describe('zip action', () => {
             'download-zip-archive',
             'download-encrypted-zip-archive',
             'download-tar-gzip-archive'
+          ])
+        }
+      }).setupPromise
+    })
+
+    it('create archive actions are flat by default', async () => {
+      await getActionsWrapper({
+        actionFactory: useCreateArchiveActions,
+        setup: (actions) => {
+          expect(unref(actions).map((action) => action.name)).toEqual([
+            'create-zip-archive',
+            'create-encrypted-zip-archive',
+            'create-tar-gzip-archive'
+          ])
+        }
+      }).setupPromise
+    })
+
+    it('download archive actions are flat by default', async () => {
+      await getActionsWrapper({
+        actionFactory: useDownloadArchiveActions,
+        setup: (actions) => {
+          expect(unref(actions).map((action) => action.name)).toEqual([
+            'download-zip-archive',
+            'download-encrypted-zip-archive',
+            'download-tar-gzip-archive'
+          ])
+        }
+      }).setupPromise
+    })
+
+    it('can expose archive actions as a nested menu when configured', async () => {
+      await getActionsWrapper({
+        actionFactory: useCreateArchiveActions,
+        applicationConfig: { fileArchiverUseNestedActions: true },
+        setup: (actions) => {
+          expect(unref(actions).map((action) => action.name)).toEqual(['create-archive'])
+          expect(
+            (unref(actions)[0] as FileActionWithChildren).children?.map((child) => child.name)
+          ).toEqual([
+            'create-zip-archive',
+            'create-encrypted-zip-archive',
+            'create-tar-gzip-archive'
           ])
         }
       }).setupPromise
@@ -514,7 +559,63 @@ function getWrapper({
             spacesState: {
               spaces: [
                 mock<SpaceResource>({ id: 'space-id', storageId: 'space-id' }),
-                mock<SpaceResource>({ id: 'target-space-id', storageId: 'target-space-id' })
+                mock<SpaceResource>({
+                  id: 'target-space-id',
+                  storageId: 'target-space-id'
+                })
+              ]
+            }
+          }
+        }
+      }
+    ),
+    setupPromise
+  }
+}
+
+function getActionsWrapper({
+  actionFactory,
+  applicationConfig = {},
+  setup,
+  currentFolder = mock<Resource>({ path: '/Personal', canUpload: () => true }),
+  resources = []
+}: {
+  actionFactory: (
+    applicationConfig?: Parameters<typeof useCreateArchiveActions>[0]
+  ) => ReturnType<typeof useCreateArchiveActions>
+  applicationConfig?: Parameters<typeof useCreateArchiveActions>[0]
+  setup: (
+    instance: ReturnType<typeof useCreateArchiveActions>,
+    mocks: ReturnType<typeof defaultComponentMocks>
+  ) => void
+  currentFolder?: Resource
+  resources?: Resource[]
+}) {
+  askForZipPasswordMock = vi.fn().mockResolvedValue('zip-password')
+  askForArchiveFileNameMock = vi.fn().mockResolvedValue('archive.zip')
+
+  const mocks = { ...defaultComponentMocks() }
+  let setupPromise: Promise<void> = Promise.resolve()
+
+  return {
+    wrapper: getComposableWrapper(
+      () => {
+        const instance = actionFactory(applicationConfig)
+        setupPromise = Promise.resolve(setup(instance, mocks))
+      },
+      {
+        mocks,
+        provide: mocks,
+        pluginOptions: {
+          piniaOptions: {
+            resourcesStore: { currentFolder, resources },
+            spacesState: {
+              spaces: [
+                mock<SpaceResource>({ id: 'space-id', storageId: 'space-id' }),
+                mock<SpaceResource>({
+                  id: 'target-space-id',
+                  storageId: 'target-space-id'
+                })
               ]
             }
           }

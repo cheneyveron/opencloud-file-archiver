@@ -12,13 +12,25 @@ vi.mock('../../../src/composables/useUnzipAction', () => ({
 }))
 
 vi.mock('../../../src/composables/useZipAction', () => ({
-  useCreateArchiveAction: () => ({ name: 'create' }),
-  useDownloadArchiveAction: () => ({ name: 'download' })
+  useCreateArchiveActions: () => [{ name: 'create-zip' }, { name: 'create-tar-gzip' }],
+  useDownloadArchiveActions: () => [{ name: 'download-zip' }, { name: 'download-tar-gzip' }]
 }))
 
 describe('useExtensions', () => {
   beforeEach(() => {
     embedModeEnabled.value = false
+  })
+
+  it('registers flat archive actions by default', () => {
+    const extensions = unref(useExtensions({ applicationConfig: {} } as never))
+
+    expect(extensions.filter(({ type }) => type === 'action').map(({ id }) => id)).toEqual([
+      'com.github.opencloud-eu.web-extensions.file-archiver.create-zip',
+      'com.github.opencloud-eu.web-extensions.file-archiver.create-tar-gzip',
+      'com.github.opencloud-eu.web-extensions.file-archiver.download-zip',
+      'com.github.opencloud-eu.web-extensions.file-archiver.download-tar-gzip',
+      'com.github.opencloud-eu.web-extensions.file-archiver.extract'
+    ])
   })
 
   it('registers archive task panel outside embed mode', () => {
@@ -34,10 +46,8 @@ describe('useExtensions', () => {
 
     const extensions = unref(useExtensions({ applicationConfig: {} } as never))
 
-    expect(extensions.map(({ id }) => id)).toEqual([
-      'com.github.opencloud-eu.web-extensions.file-archiver.create',
-      'com.github.opencloud-eu.web-extensions.file-archiver.download',
-      'com.github.opencloud-eu.web-extensions.file-archiver.extract'
-    ])
+    expect(extensions.map(({ id }) => id)).not.toContain(
+      'com.github.opencloud-eu.web-extensions.file-archiver.task-panel'
+    )
   })
 })
