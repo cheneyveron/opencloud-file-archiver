@@ -7,7 +7,9 @@
     <div class="flex justify-between items-center px-4 py-2 rounded-t-xl">
       <p class="my-1 font-bold" v-text="title" />
       <oc-button
-        :aria-label="bodyCollapsed ? $gettext('Expand archive tasks') : $gettext('Collapse archive tasks')"
+        :aria-label="
+          bodyCollapsed ? $gettext('Expand archive tasks') : $gettext('Collapse archive tasks')
+        "
         appearance="raw"
         @click="bodyCollapsed = !bodyCollapsed"
       >
@@ -78,10 +80,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, unref, watch } from 'vue'
+import { computed, ref, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
-import { AppConfigObject, eventBus } from '@opencloud-eu/web-pkg'
-import { ArchiveJob, useArchiveJobs } from '../composables/useArchiveJobs'
+import { AppConfigObject } from '@opencloud-eu/web-pkg'
+import { ArchiveJob } from '../composables/useArchiveJobs'
+import { useArchiveJobsAutoRefresh } from '../composables/useArchiveJobsAutoRefresh'
 
 const props = defineProps<{
   applicationConfig?: AppConfigObject
@@ -89,8 +92,7 @@ const props = defineProps<{
 
 const { $gettext } = useGettext()
 const bodyCollapsed = ref(false)
-const reloadedJobIds = ref(new Set<string>())
-const { jobs, startPolling, cancelJob, dismissJob } = useArchiveJobs(props.applicationConfig || {})
+const { jobs, cancelJob, dismissJob } = useArchiveJobsAutoRefresh(props.applicationConfig || {})
 
 const title = computed(() => {
   const running = unref(jobs).filter(isRunning).length
@@ -122,25 +124,4 @@ function jobLabel(job: ArchiveJob) {
   }
   return $gettext('Extracting archive')
 }
-
-onMounted(() => {
-  startPolling()
-})
-
-watch(
-  jobs,
-  (value) => {
-    for (const job of value) {
-      if (job.status !== 'succeeded' || job.output?.mode !== 'save') {
-        continue
-      }
-      if (unref(reloadedJobIds).has(job.id)) {
-        continue
-      }
-      reloadedJobIds.value = new Set([...unref(reloadedJobIds), job.id])
-      eventBus.publish('app.files.list.load')
-    }
-  },
-  { deep: true }
-)
 </script>
