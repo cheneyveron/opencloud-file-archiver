@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - file-archiver-service/**
   workflow_dispatch:
 
 permissions:
