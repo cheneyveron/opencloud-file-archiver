@@ -1,7 +1,18 @@
 # Core Web Patches
 
-These patches contain platform-level OpenCloud Web changes required by the archive extension
-when the target OpenCloud Web version does not already include equivalent capabilities.
+These patches contain optional platform-level OpenCloud Web changes used for native
+integration experiments and upstreaming. The archive extension no longer requires these
+patches to run.
+
+Without these patches, the extension uses compatibility fallbacks:
+
+- archive actions are registered as a flat list unless `fileArchiverUseNestedActions` is enabled
+- archive file names are requested by the extension when the location picker does not return one
+- archive job progress is shown in the extension's floating task panel when
+  `app.runtime.snackbars` is unavailable
+
+Apply patches only when you want to test the corresponding Core Web behavior in a matching
+OpenCloud Web source tree.
 
 Apply from the root of the `web` source tree:
 
