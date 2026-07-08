@@ -13,6 +13,7 @@ import {
 import { Resource } from '@opencloud-eu/web-client'
 import { computed, markRaw, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
+import { useAskForArchiveFileName } from './useAskForArchiveFileName'
 import { useAskForZipPassword } from './useAskForZipPassword'
 
 const DEFAULT_SERVICE_URL = '/archive'
@@ -123,6 +124,7 @@ const useCreateZipAction = (
   const resourcesStore = useResourcesStore()
   const requestHeaders = useRequestHeaders()
   const { showErrorMessage, showMessage } = useMessages()
+  const { askForArchiveFileName } = useAskForArchiveFileName()
   const { askForZipPassword } = useAskForZipPassword()
   const { dispatchModal } = useModals()
   const { getParentFolderLink } = useFolderLink()
@@ -216,14 +218,23 @@ const useCreateZipAction = (
     password?: string
   }) {
     try {
-      await createCompressionJob({ space, resources, archiveFileName, targetFolder, password })
+      await createCompressionJob({
+        space,
+        resources,
+        archiveFileName,
+        targetFolder,
+        password
+      })
 
       showMessage({
         title: $gettext('Archive creation started'),
         status: 'passive'
       })
     } catch (error) {
-      showErrorMessage({ title: $gettext('Failed to create archive'), errors: [error] })
+      showErrorMessage({
+        title: $gettext('Failed to create archive'),
+        errors: [error]
+      })
     }
   }
 
@@ -278,14 +289,24 @@ const useCreateZipAction = (
         chooseFileNameSuggestion: archiveFileName,
         callbackFn: (targetResources: Resource[], options?: { fileName?: string }) => {
           const targetFolder = targetResources[0]
-          const fileName = ensureArchiveFileName(options?.fileName || archiveFileName, format)
-          void createSavedArchive({
-            space,
-            resources,
-            targetFolder,
-            archiveFileName: fileName,
-            password
-          })
+          void (async () => {
+            const selectedFileName =
+              typeof options?.fileName === 'string'
+                ? options.fileName
+                : await askForArchiveFileName(archiveFileName)
+            if (!selectedFileName) {
+              return
+            }
+
+            const fileName = ensureArchiveFileName(selectedFileName, format)
+            await createSavedArchive({
+              space,
+              resources,
+              targetFolder,
+              archiveFileName: fileName,
+              password
+            })
+          })()
         }
       }),
       focusTrapInitial: false

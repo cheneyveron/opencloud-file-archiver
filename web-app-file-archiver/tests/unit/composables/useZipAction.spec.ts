@@ -13,12 +13,23 @@ import {
 } from '../../../src/composables/useZipAction'
 
 let askForZipPasswordMock = vi.fn()
+let askForArchiveFileNameMock = vi.fn()
 let fetchMock = vi.fn()
 
 type FileActionWithChildren = FileAction & { children?: FileAction[] }
 
 vi.mock('../../../src/composables/useAskForZipPassword', () => {
-  return { useAskForZipPassword: () => ({ askForZipPassword: askForZipPasswordMock }) }
+  return {
+    useAskForZipPassword: () => ({ askForZipPassword: askForZipPasswordMock })
+  }
+})
+
+vi.mock('../../../src/composables/useAskForArchiveFileName', () => {
+  return {
+    useAskForArchiveFileName: () => ({
+      askForArchiveFileName: askForArchiveFileNameMock
+    })
+  }
 })
 
 describe('zip action', () => {
@@ -155,6 +166,7 @@ describe('zip action', () => {
           callbackFn([targetFolder], { fileName: 'custom.zip' })
 
           await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+          expect(askForArchiveFileNameMock).not.toHaveBeenCalled()
           expect(fetchMock).toHaveBeenCalledWith(
             '/archive/api/compressions',
             expect.objectContaining({
@@ -189,6 +201,71 @@ describe('zip action', () => {
               status: 'passive'
             })
           })
+        }
+      }).setupPromise
+    })
+
+    it('asks for an archive file name when the location picker returns a legacy payload', async () => {
+      await getWrapper({
+        archiveFileName: 'fallback-name.zip',
+        setup: async (action) => {
+          const resource = mock<Resource>({
+            id: 'report-id',
+            name: 'report.txt',
+            path: '/report.txt',
+            storageId: 'space-id',
+            isFolder: false,
+            mimeType: 'text/plain'
+          })
+          const targetFolder = mock<Resource>({
+            id: 'target-folder',
+            path: '/target',
+            storageId: 'target-space-id'
+          })
+
+          await unref(action).handler({ space, resources: [resource] })
+
+          const { dispatchModal } = useModals()
+          const callbackFn = vi.mocked(dispatchModal).mock.calls[0][0].customComponentAttrs()
+            .callbackFn as (resources: Resource[]) => void
+          callbackFn([targetFolder])
+
+          await vi.waitFor(() =>
+            expect(askForArchiveFileNameMock).toHaveBeenCalledWith('report.zip')
+          )
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+          expect(
+            JSON.parse(fetchMock.mock.calls[0][1].body as string).output.destination.fileName
+          ).toBe('fallback-name.zip')
+        }
+      }).setupPromise
+    })
+
+    it('does not create an archive when the fallback file name prompt is cancelled', async () => {
+      await getWrapper({
+        archiveFileName: null,
+        setup: async (action) => {
+          const resource = mock<Resource>({
+            id: 'report-id',
+            name: 'report.txt',
+            path: '/report.txt',
+            storageId: 'space-id',
+            isFolder: false
+          })
+          const targetFolder = mock<Resource>({
+            id: 'target-folder',
+            path: '/target',
+            storageId: 'target-space-id'
+          })
+
+          await unref(action).handler({ space, resources: [resource] })
+          const { dispatchModal } = useModals()
+          const callbackFn = vi.mocked(dispatchModal).mock.calls[0][0].customComponentAttrs()
+            .callbackFn as (resources: Resource[]) => void
+          callbackFn([targetFolder])
+
+          await vi.waitFor(() => expect(askForArchiveFileNameMock).toHaveBeenCalled())
+          expect(fetchMock).not.toHaveBeenCalled()
         }
       }).setupPromise
     })
@@ -401,9 +478,12 @@ function getWrapper({
   setup,
   currentFolder = mock<Resource>({ path: '/Personal', canUpload: () => true }),
   resources = [],
-  zipPassword = 'zip-password'
+  zipPassword = 'zip-password',
+  archiveFileName = 'archive.zip'
 }: {
-  actionFactory?: typeof useZipAction
+  actionFactory?: (
+    applicationConfig?: Parameters<typeof useZipAction>[0]
+  ) => ReturnType<typeof useZipAction>
   setup: (
     instance: ReturnType<typeof useZipAction>,
     mocks: ReturnType<typeof defaultComponentMocks>
@@ -411,8 +491,10 @@ function getWrapper({
   currentFolder?: Resource
   resources?: Resource[]
   zipPassword?: string | null
+  archiveFileName?: string | null
 }) {
   askForZipPasswordMock = vi.fn().mockResolvedValue(zipPassword)
+  askForArchiveFileNameMock = vi.fn().mockResolvedValue(archiveFileName)
 
   const mocks = { ...defaultComponentMocks() }
   let setupPromise: Promise<void> = Promise.resolve()
