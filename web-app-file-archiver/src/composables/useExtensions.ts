@@ -3,9 +3,11 @@ import {
   ApplicationSetupOptions,
   CustomComponentExtension,
   FileAction,
-  useEmbedMode
+  useEmbedMode,
+  useExtensionRegistry
 } from '@opencloud-eu/web-pkg'
 import { computed, markRaw, unref } from 'vue'
+import ArchiveFloatingTaskPanel from '../components/ArchiveFloatingTaskPanel.vue'
 import ArchiveTaskPanel from '../components/ArchiveTaskPanel.vue'
 import { useUnzipAction } from './useUnzipAction'
 import { ArchiveConfig, useCreateArchiveActions, useDownloadArchiveActions } from './useZipAction'
@@ -27,6 +29,18 @@ export const useExtensions = ({ applicationConfig }: ApplicationSetupOptions) =>
   const createArchiveActions = useCreateArchiveActions(archiveConfig)
   const downloadArchiveActions = useDownloadArchiveActions(archiveConfig)
   const { isEnabled: isEmbedModeEnabled } = useEmbedMode()
+  const extensionRegistry = useExtensionRegistry()
+
+  function canInspectExtensionPoints() {
+    return typeof extensionRegistry.getExtensionPoints === 'function'
+  }
+
+  function hasExtensionPoint(id: string) {
+    if (!canInspectExtensionPoints()) {
+      return false
+    }
+    return extensionRegistry.getExtensionPoints().some((extensionPoint) => extensionPoint.id === id)
+  }
 
   const archiveActionExtensions = computed<ActionExtension[]>(() => {
     return [
@@ -46,13 +60,27 @@ export const useExtensions = ({ applicationConfig }: ApplicationSetupOptions) =>
     }
   })
 
+  const floatingTaskPanelExtension = computed<CustomComponentExtension>(() => {
+    return {
+      id: `${EXTENSION_ID_PREFIX}.floating-task-panel`,
+      type: 'customComponent',
+      extensionPointIds: ['app.runtime.header.right'],
+      content: markRaw(ArchiveFloatingTaskPanel),
+      componentProps: () => ({ applicationConfig })
+    }
+  })
+
   return computed<(ActionExtension | CustomComponentExtension)[]>(() => {
     const extensions: (ActionExtension | CustomComponentExtension)[] = [
       ...unref(archiveActionExtensions)
     ]
 
     if (!unref(isEmbedModeEnabled)) {
-      extensions.push(unref(taskPanelExtension))
+      if (hasExtensionPoint('app.runtime.snackbars')) {
+        extensions.push(unref(taskPanelExtension))
+      } else if (!canInspectExtensionPoints() || hasExtensionPoint('app.runtime.header.right')) {
+        extensions.push(unref(floatingTaskPanelExtension))
+      }
     }
 
     return extensions

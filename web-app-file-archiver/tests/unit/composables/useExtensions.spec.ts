@@ -2,9 +2,19 @@ import { unref } from 'vue'
 import { useExtensions } from '../../../src/composables/useExtensions'
 
 const embedModeEnabled = vi.hoisted(() => ({ __v_isRef: true, value: false }))
+const inspectExtensionPoints = vi.hoisted(() => ({ value: true }))
+const extensionPoints = vi.hoisted(() => ({
+  value: [{ id: 'app.runtime.snackbars' }, { id: 'app.runtime.header.right' }]
+}))
 
 vi.mock('@opencloud-eu/web-pkg', () => ({
-  useEmbedMode: () => ({ isEnabled: embedModeEnabled })
+  useEmbedMode: () => ({ isEnabled: embedModeEnabled }),
+  useExtensionRegistry: () =>
+    inspectExtensionPoints.value
+      ? {
+          getExtensionPoints: () => extensionPoints.value
+        }
+      : {}
 }))
 
 vi.mock('../../../src/composables/useUnzipAction', () => ({
@@ -19,6 +29,8 @@ vi.mock('../../../src/composables/useZipAction', () => ({
 describe('useExtensions', () => {
   beforeEach(() => {
     embedModeEnabled.value = false
+    inspectExtensionPoints.value = true
+    extensionPoints.value = [{ id: 'app.runtime.snackbars' }, { id: 'app.runtime.header.right' }]
   })
 
   it('registers flat archive actions by default', () => {
@@ -33,11 +45,34 @@ describe('useExtensions', () => {
     ])
   })
 
-  it('registers archive task panel outside embed mode', () => {
+  it('registers archive task panel when the snackbar extension point exists', () => {
     const extensions = unref(useExtensions({ applicationConfig: {} } as never))
 
     expect(extensions.map(({ id }) => id)).toContain(
       'com.github.opencloud-eu.web-extensions.file-archiver.task-panel'
+    )
+  })
+
+  it('registers floating task panel when snackbar extension point is missing', () => {
+    extensionPoints.value = [{ id: 'app.runtime.header.right' }]
+
+    const extensions = unref(useExtensions({ applicationConfig: {} } as never))
+
+    expect(extensions.map(({ id }) => id)).toContain(
+      'com.github.opencloud-eu.web-extensions.file-archiver.floating-task-panel'
+    )
+    expect(extensions.map(({ id }) => id)).not.toContain(
+      'com.github.opencloud-eu.web-extensions.file-archiver.task-panel'
+    )
+  })
+
+  it('registers floating task panel when extension points can not be inspected', () => {
+    inspectExtensionPoints.value = false
+
+    const extensions = unref(useExtensions({ applicationConfig: {} } as never))
+
+    expect(extensions.map(({ id }) => id)).toContain(
+      'com.github.opencloud-eu.web-extensions.file-archiver.floating-task-panel'
     )
   })
 
@@ -48,6 +83,9 @@ describe('useExtensions', () => {
 
     expect(extensions.map(({ id }) => id)).not.toContain(
       'com.github.opencloud-eu.web-extensions.file-archiver.task-panel'
+    )
+    expect(extensions.map(({ id }) => id)).not.toContain(
+      'com.github.opencloud-eu.web-extensions.file-archiver.floating-task-panel'
     )
   })
 })
