@@ -64,6 +64,8 @@ describe('unzip action', () => {
     it.each([
       ['archive.zip', 'application/zip'],
       ['archive.7z', 'application/octet-stream'],
+      ['archive.rar', 'application/vnd.rar'],
+      ['archive-rar.bin', 'application/x-rar-compressed'],
       ['archive.tar', 'application/x-tar'],
       ['archive.tar.gz', 'application/gzip'],
       ['archive.tgz', 'application/octet-stream'],
@@ -74,16 +76,6 @@ describe('unzip action', () => {
         setup: (action) => {
           const resource = mock<Resource>({ name, mimeType })
           expect(unref(action).isVisible({ space, resources: [resource] })).toBeTruthy()
-        }
-      })
-    })
-
-    it('is false for unsupported rar archives', () => {
-      getWrapper({
-        currentFolder: mock<Resource>({ canUpload: () => true }),
-        setup: (action) => {
-          const resource = mock<Resource>({ name: 'archive.rar', mimeType: 'application/vnd.rar' })
-          expect(unref(action).isVisible({ space, resources: [resource] })).toBeFalsy()
         }
       })
     })

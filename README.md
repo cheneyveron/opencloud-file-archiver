@@ -30,11 +30,12 @@ through WebDAV, using the user's own OpenCloud authorization.
 | Workflow | Formats |
 | --- | --- |
 | Create | ZIP, encrypted ZIP with AES-256, tar.gz |
-| Extract | ZIP, 7z, tar, tar.gz, tgz, gz |
-| Browse and preview | ZIP, 7z, tar, tar.gz, tgz, gz |
+| Extract | ZIP, 7z, RAR, tar, tar.gz, tgz, gz |
+| Browse and preview | ZIP, 7z, RAR, tar, tar.gz, tgz, gz |
 | Inline preview entries | Text, images and PDF files |
 
-RAR and ZipCrypto are intentionally not supported.
+Encrypted ZIP, 7z and RAR source archives can prompt for passwords. ZipCrypto is intentionally
+not supported.
 
 ## User Experience
 

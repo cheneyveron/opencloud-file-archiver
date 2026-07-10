@@ -9,9 +9,11 @@ writes go through WebDAV.
 ## Supported Formats
 
 - Compress: `.zip`, encrypted `.zip` with AES-256, `.tar.gz`
-- Extract: `.zip`, `.7z`, `.tar`, `.tar.gz` / `.tgz`, `.gz`
+- Extract: `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz` / `.tgz`, `.gz`
+- Browse and preview: `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz` / `.tgz`, `.gz`
 
-RAR and ZipCrypto are intentionally not supported.
+Encrypted ZIP, 7z and RAR source archives can require passwords. ZipCrypto is intentionally
+not supported.
 
 ## Configuration
 
@@ -30,6 +32,7 @@ RAR and ZipCrypto are intentionally not supported.
 | `FILE_ARCHIVER_DAV_HEADER_TIMEOUT` | `30s` | Maximum time to wait for WebDAV response headers |
 | `FILE_ARCHIVER_DOWNLOAD_TOKEN_TTL` | `10m` | Lifetime for unauthenticated one-time download URLs |
 | `FILE_ARCHIVER_ZIP_AES_BUFFER_LIMIT` | `512000000` | AES ZIP compressed-entry size before using deferred auth |
+| `FILE_ARCHIVER_RAR_MAX_DICTIONARY_BYTES` | `268435456` | Maximum RAR decode dictionary size |
 | `FILE_ARCHIVER_JOB_TTL` | `1h` | Finished job retention |
 
 Legacy `ARCHIVE_*` variables are still accepted for compatibility.

@@ -31,6 +31,7 @@ import (
 	"unicode"
 
 	"github.com/bodgit/sevenzip"
+	"github.com/nwaples/rardecode/v2"
 	yzip "github.com/yeka/zip"
 )
 
@@ -64,6 +65,7 @@ type config struct {
 	davHeaderTimeout  time.Duration
 	downloadTokenTTL  time.Duration
 	aesBufferLimit    uint64
+	rarDictionarySize int64
 	rangeBlockSize    int64
 }
 
@@ -279,6 +281,17 @@ type archiveEntry struct {
 	ModTime time.Time
 }
 
+type rarArchiveEntry struct {
+	Path        string
+	IsDir       bool
+	Size        int64
+	UnknownSize bool
+	ModTime     time.Time
+	CreatedTime *time.Time
+	Encrypted   bool
+	Solid       bool
+}
+
 type compressionPlan struct {
 	entries []archiveEntry
 	total   int64
@@ -356,6 +369,7 @@ func loadConfig() config {
 		davHeaderTimeout:  envDuration("FILE_ARCHIVER_DAV_HEADER_TIMEOUT", 30*time.Second, "ARCHIVE_DAV_HEADER_TIMEOUT"),
 		downloadTokenTTL:  envDuration("FILE_ARCHIVER_DOWNLOAD_TOKEN_TTL", 10*time.Minute, "ARCHIVE_DOWNLOAD_TOKEN_TTL"),
 		aesBufferLimit:    uint64(envInt64("FILE_ARCHIVER_ZIP_AES_BUFFER_LIMIT", 512*1000*1000, "ARCHIVE_ZIP_AES_BUFFER_LIMIT")),
+		rarDictionarySize: envInt64("FILE_ARCHIVER_RAR_MAX_DICTIONARY_BYTES", 256*1024*1024, "ARCHIVE_RAR_MAX_DICTIONARY_BYTES"),
 		rangeBlockSize:    envInt64("FILE_ARCHIVER_RANGE_BLOCK_BYTES", 1024*1024, "ARCHIVE_RANGE_BLOCK_BYTES"),
 	}
 }
@@ -381,6 +395,9 @@ func newServer(cfg config) (*server, error) {
 	}
 	if cfg.downloadTokenTTL <= 0 {
 		cfg.downloadTokenTTL = 10 * time.Minute
+	}
+	if cfg.rarDictionarySize <= 0 {
+		cfg.rarDictionarySize = 256 * 1024 * 1024
 	}
 	return &server{
 		cfg:         cfg,
@@ -775,26 +792,37 @@ func (s *server) handlePreviewEntryContent(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var content *previewContentFile
 	if err := s.withWorker(r.Context(), func() error {
-		contentType := entry.MimeType
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-		w.Header().Set("Content-Type", contentType)
-		if download {
-			w.Header().Set("Content-Disposition", contentDisposition(entry.Name))
-		} else {
-			w.Header().Set("Content-Disposition", inlineContentDisposition(entry.Name))
-		}
-		if entry.Size >= 0 {
-			w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
-		}
-		if err := s.writePreviewEntryContent(r.Context(), w, p, entry, limit, code); err != nil {
-			log.Printf("preview content failed: preview=%s entry=%s err=%v", p.ID, entry.ID, err)
-		}
-		return nil
+		var err error
+		content, err = s.spoolPreviewEntryContent(r.Context(), p, entry, limit, code)
+		return err
 	}); err != nil {
 		writeError(w, err)
+		return
+	}
+	defer content.cleanup()
+
+	f, err := os.Open(content.Path)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer f.Close()
+
+	contentType := entry.MimeType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	if download {
+		w.Header().Set("Content-Disposition", contentDisposition(entry.Name))
+	} else {
+		w.Header().Set("Content-Disposition", inlineContentDisposition(entry.Name))
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(content.Size, 10))
+	if _, err := io.CopyBuffer(contextWriter{ctx: r.Context(), w: w}, f, make([]byte, 1024*1024)); err != nil {
+		log.Printf("preview response failed: preview=%s entry=%s err=%v", p.ID, entry.ID, err)
 	}
 }
 
@@ -1028,6 +1056,16 @@ func (s *server) extractArchive(j *job) error {
 			s.addBytesDone(j, n)
 		})
 		err = s.extractSevenZip(j, dc, reader, size)
+	case "rar":
+		var size int64
+		size, err = s.prepareRandomAccessSource(j, dc, req.Source)
+		if err != nil {
+			return err
+		}
+		reader := dc.readerAt(j.ctx, req.Source.SpaceID, req.Source.Path, size, s.cfg.rangeBlockSize, func(n int64) {
+			s.addBytesDone(j, n)
+		})
+		err = s.extractRar(j, dc, reader, size)
 	default:
 		err = newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
 	}
@@ -1119,6 +1157,13 @@ func (s *server) indexPreviewArchive(ctx context.Context, dc *davClient, req pre
 		}
 		reader := dc.readerAt(ctx, req.Source.SpaceID, req.Source.Path, size, s.cfg.rangeBlockSize, nil)
 		return s.indexSevenZipPreview(reader, size, req.Password)
+	case "rar":
+		size, err := s.preparePreviewRandomAccessSource(ctx, dc, req.Source)
+		if err != nil {
+			return nil, err
+		}
+		reader := dc.readerAt(ctx, req.Source.SpaceID, req.Source.Path, size, s.cfg.rangeBlockSize, nil)
+		return s.indexRarPreview(ctx, reader, size, req.Password)
 	default:
 		return nil, newError(http.StatusBadRequest, "UNSUPPORTED_ARCHIVE", "Unsupported archive type")
 	}
@@ -1248,6 +1293,102 @@ func (s *server) indexSevenZipPreview(archive io.ReaderAt, size int64, password 
 	return finalizePreviewEntries(entries), nil
 }
 
+func (s *server) indexRarPreview(ctx context.Context, archive io.ReaderAt, size int64, password string) ([]previewEntry, error) {
+	rarEntries, err := s.scanRarArchive(ctx, archive, size, password, password != "")
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]previewEntry, 0, len(rarEntries))
+	for _, entry := range rarEntries {
+		entries = append(entries, previewEntry{
+			Path:        entry.Path,
+			IsDir:       entry.IsDir,
+			Size:        entry.Size,
+			ModTime:     entry.ModTime,
+			CreatedTime: entry.CreatedTime,
+			Encrypted:   entry.Encrypted,
+		})
+	}
+	return finalizePreviewEntries(entries), nil
+}
+
+func (s *server) scanRarArchive(ctx context.Context, archive io.ReaderAt, size int64, password string, verifyEncrypted bool) ([]rarArchiveEntry, error) {
+	rr, err := s.newRarReader(io.NewSectionReader(archive, 0, size), password)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]rarArchiveEntry, 0)
+	verifiedEncrypted := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		h, err := rr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, rarReadError(err, password)
+		}
+		if len(entries) >= s.cfg.maxEntries {
+			return nil, newError(http.StatusRequestEntityTooLarge, "TOO_MANY_ENTRIES", "Archive contains too many entries")
+		}
+		entry, err := rarArchiveEntryFromHeader(h)
+		if err != nil {
+			return nil, err
+		}
+		if !entry.IsDir && !entry.UnknownSize && s.cfg.maxEntryBytes > 0 && entry.Size > s.cfg.maxEntryBytes {
+			return nil, newError(http.StatusRequestEntityTooLarge, "ENTRY_TOO_LARGE", "RAR entry exceeds configured size limit")
+		}
+		entries = append(entries, entry)
+		if verifyEncrypted && !verifiedEncrypted && entry.Encrypted && !entry.IsDir && password != "" {
+			_, copyErr := io.CopyN(io.Discard, rr, 1)
+			if copyErr != nil && !errors.Is(copyErr, io.EOF) {
+				return nil, rarReadError(copyErr, password)
+			}
+			verifiedEncrypted = true
+		}
+	}
+	return entries, nil
+}
+
+func (s *server) newRarReader(r io.Reader, password string) (*rardecode.Reader, error) {
+	opts := []rardecode.Option{rardecode.MaxDictionarySize(s.cfg.rarDictionarySize)}
+	if password != "" {
+		opts = append(opts, rardecode.Password(password))
+	}
+	rr, err := rardecode.NewReader(r, opts...)
+	if err != nil {
+		return nil, rarReadError(err, password)
+	}
+	return rr, nil
+}
+
+func rarArchiveEntryFromHeader(h *rardecode.FileHeader) (rarArchiveEntry, error) {
+	entryPath, err := safeArchivePath(h.Name)
+	if err != nil {
+		return rarArchiveEntry{}, newError(http.StatusBadRequest, "PATH_REJECTED", fmt.Sprintf("Rejected archive path %q: %v", h.Name, err))
+	}
+	mode := h.Mode()
+	if !h.IsDir && mode.Type() != 0 {
+		return rarArchiveEntry{}, newError(http.StatusBadRequest, "UNSUPPORTED_ENTRY", "RAR entry is not a regular file")
+	}
+	size := h.UnPackedSize
+	if h.UnKnownSize {
+		size = -1
+	}
+	return rarArchiveEntry{
+		Path:        entryPath,
+		IsDir:       h.IsDir,
+		Size:        size,
+		UnknownSize: h.UnKnownSize,
+		ModTime:     h.ModificationTime,
+		CreatedTime: optionalTime(h.CreationTime),
+		Encrypted:   h.Encrypted || h.HeaderEncrypted,
+		Solid:       h.Solid,
+	}, nil
+}
+
 func (s *server) indexTarPreview(ctx context.Context, src io.Reader, gzipped bool) ([]previewEntry, error) {
 	var r io.Reader = src
 	var gz *gzip.Reader
@@ -1318,6 +1459,31 @@ func (s *server) indexGzipPreview(src io.Reader, source sourceRef) ([]previewEnt
 	}}), nil
 }
 
+func (s *server) spoolPreviewEntryContent(ctx context.Context, p *previewSession, entry previewEntry, maxBytes int64, limitCode string) (*previewContentFile, error) {
+	f, err := os.CreateTemp(s.cfg.tmpDir, "preview-"+p.ID+"-")
+	if err != nil {
+		return nil, err
+	}
+	content := &previewContentFile{Path: f.Name()}
+	writeErr := s.writePreviewEntryContent(ctx, f, p, entry, maxBytes, limitCode)
+	closeErr := f.Close()
+	if writeErr != nil {
+		content.cleanup()
+		return nil, writeErr
+	}
+	if closeErr != nil {
+		content.cleanup()
+		return nil, closeErr
+	}
+	stat, err := os.Stat(content.Path)
+	if err != nil {
+		content.cleanup()
+		return nil, err
+	}
+	content.Size = stat.Size()
+	return content, nil
+}
+
 func (s *server) writePreviewEntryContent(ctx context.Context, w io.Writer, p *previewSession, entry previewEntry, maxBytes int64, limitCode string) error {
 	dc, err := s.newDAVClient(p.Authorization)
 	if err != nil {
@@ -1338,6 +1504,13 @@ func (s *server) writePreviewEntryContent(ctx context.Context, w io.Writer, p *p
 		}
 		reader := dc.readerAt(ctx, p.Source.SpaceID, p.Source.Path, size, s.cfg.rangeBlockSize, nil)
 		return s.writeSevenZipPreviewEntry(ctx, w, reader, size, p.Password, entry, maxBytes, limitCode)
+	case "rar":
+		size, err := s.preparePreviewRandomAccessSource(ctx, dc, p.Source)
+		if err != nil {
+			return err
+		}
+		reader := dc.readerAt(ctx, p.Source.SpaceID, p.Source.Path, size, s.cfg.rangeBlockSize, nil)
+		return s.writeRarPreviewEntry(ctx, w, reader, size, p.Password, entry, maxBytes, limitCode)
 	case "tar":
 		body, err := s.previewArchiveStream(ctx, dc, p.Source)
 		if err != nil {
@@ -1443,6 +1616,51 @@ func (s *server) writeSevenZipPreviewEntry(ctx context.Context, w io.Writer, arc
 			return copyErr
 		}
 		return archiveReadError(closeErr)
+	}
+	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
+}
+
+func (s *server) writeRarPreviewEntry(ctx context.Context, w io.Writer, archive io.ReaderAt, size int64, password string, entry previewEntry, maxBytes int64, limitCode string) error {
+	rr, err := s.newRarReader(io.NewSectionReader(archive, 0, size), password)
+	if err != nil {
+		return err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		h, err := rr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return rarReadError(err, password)
+		}
+		rarEntry, err := rarArchiveEntryFromHeader(h)
+		if err != nil {
+			return err
+		}
+		if rarEntry.Path != entry.Path {
+			if rarEntry.Solid && !rarEntry.IsDir {
+				if err := discardRarEntry(ctx, rr, s.cfg.maxEntryBytes, "ENTRY_TOO_LARGE"); err != nil {
+					return rarStreamError(err, password)
+				}
+			}
+			continue
+		}
+		if rarEntry.IsDir {
+			return newError(http.StatusBadRequest, "BAD_REQUEST", "Archive entry is a directory")
+		}
+		if password == "" && rarEntry.Encrypted {
+			return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password is required")
+		}
+		if maxBytes > 0 && !rarEntry.UnknownSize && rarEntry.Size > maxBytes {
+			return newError(http.StatusRequestEntityTooLarge, limitCode, "Archive entry exceeds configured size limit")
+		}
+		if err := s.copyPreviewContent(ctx, w, rr, maxBytes, limitCode); err != nil {
+			return rarStreamError(err, password)
+		}
+		return nil
 	}
 	return newError(http.StatusNotFound, "NOT_FOUND", "Archive entry not found")
 }
@@ -1809,6 +2027,93 @@ func (s *server) extractSevenZip(j *job, dc *davClient, archive io.ReaderAt, siz
 		}
 		if err := s.commitExtractedEntryTemp(j, dc, req.Destination.SpaceID, tempPath, resolvedPath); err != nil {
 			return err
+		}
+		s.addEntryDone(j)
+	}
+	return nil
+}
+
+func (s *server) extractRar(j *job, dc *davClient, archive io.ReaderAt, size int64) error {
+	req := j.Extraction
+	entries, err := s.scanRarArchive(j.ctx, archive, size, req.Password, req.Password != "")
+	if err != nil {
+		return err
+	}
+	if req.Password == "" && rarEntriesContainEncrypted(entries) {
+		return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password is required")
+	}
+	includedTotal := countIncludedRarEntries(entries, req.IncludePaths)
+	s.setJob(j, func(j *job) { j.EntriesTotal = includedTotal })
+	if err := dc.mkcolAll(j.ctx, req.Destination.SpaceID, req.Destination.FolderPath); err != nil {
+		return err
+	}
+
+	rr, err := s.newRarReader(io.NewSectionReader(archive, 0, size), req.Password)
+	if err != nil {
+		return err
+	}
+	var workDir string
+	defer func() {
+		if workDir != "" {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
+	for {
+		if err := j.ctx.Err(); err != nil {
+			return err
+		}
+		h, err := rr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return rarReadError(err, req.Password)
+		}
+		entry, err := rarArchiveEntryFromHeader(h)
+		if err != nil {
+			return err
+		}
+		included := archivePathIncluded(entry.Path, req.IncludePaths)
+		if !included {
+			if entry.Solid && !entry.IsDir {
+				if err := discardRarEntry(j.ctx, rr, s.cfg.maxEntryBytes, "ENTRY_TOO_LARGE"); err != nil {
+					return rarStreamError(err, req.Password)
+				}
+			}
+			continue
+		}
+		if entry.IsDir {
+			if err := dc.mkcolAll(j.ctx, req.Destination.SpaceID, joinDavPath(req.Destination.FolderPath, entry.Path)); err != nil {
+				return err
+			}
+			s.addEntryDone(j)
+			continue
+		}
+		if req.Password == "" && entry.Encrypted {
+			return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password is required")
+		}
+		if s.cfg.maxEntryBytes > 0 && !entry.UnknownSize && entry.Size > s.cfg.maxEntryBytes {
+			return newError(http.StatusRequestEntityTooLarge, "ENTRY_TOO_LARGE", "RAR entry exceeds configured size limit")
+		}
+		s.setJob(j, func(j *job) { j.CurrentEntry = entry.Path })
+		if entry.UnknownSize || entry.Size < 0 {
+			if workDir == "" {
+				workDir, err = os.MkdirTemp(s.cfg.tmpDir, "job-"+j.ID+"-")
+				if err != nil {
+					return err
+				}
+			}
+			if err := s.uploadExtractedEntrySpool(j, dc, req.Destination, entry.Path, rr, workDir); err != nil {
+				return rarStreamError(err, req.Password)
+			}
+		} else {
+			tempPath, resolvedPath, err := s.uploadExtractedEntryStreamToTemp(j, dc, req.Destination, entry.Path, rr, entry.Size)
+			if err != nil {
+				return rarStreamError(err, req.Password)
+			}
+			if err := s.commitExtractedEntryTemp(j, dc, req.Destination.SpaceID, tempPath, resolvedPath); err != nil {
+				return err
+			}
 		}
 		s.addEntryDone(j)
 	}
@@ -3249,6 +3554,17 @@ type readCloser struct {
 	io.Closer
 }
 
+type previewContentFile struct {
+	Path string
+	Size int64
+}
+
+func (f *previewContentFile) cleanup() {
+	if f != nil && f.Path != "" {
+		_ = os.Remove(f.Path)
+	}
+}
+
 type contextReader struct {
 	ctx context.Context
 	r   io.Reader
@@ -3424,6 +3740,36 @@ func countIncludedSevenZipEntries(files []*sevenzip.File, includes []string) (in
 		}
 	}
 	return total, nil
+}
+
+func countIncludedRarEntries(entries []rarArchiveEntry, includes []string) int {
+	total := 0
+	for _, entry := range entries {
+		if archivePathIncluded(entry.Path, includes) {
+			total++
+		}
+	}
+	return total
+}
+
+func rarEntriesContainEncrypted(entries []rarArchiveEntry) bool {
+	for _, entry := range entries {
+		if entry.Encrypted {
+			return true
+		}
+	}
+	return false
+}
+
+func discardRarEntry(ctx context.Context, r io.Reader, maxBytes int64, limitCode string) error {
+	reader := &limitProgressReader{
+		ctx:       ctx,
+		r:         r,
+		maxBytes:  maxBytes,
+		limitCode: limitCode,
+	}
+	_, err := io.CopyBuffer(io.Discard, reader, make([]byte, 1024*1024))
+	return err
 }
 
 func normalizePreviewListPath(value string) (string, error) {
@@ -3742,6 +4088,8 @@ func detectArchiveKind(name, mimeType string) string {
 		return "zip"
 	case strings.HasSuffix(lowerName, ".7z"), lowerMime == "application/x-7z-compressed":
 		return "7z"
+	case strings.HasSuffix(lowerName, ".rar"), lowerMime == "application/vnd.rar", lowerMime == "application/x-rar-compressed", lowerMime == "application/x-rar":
+		return "rar"
 	default:
 		return ""
 	}
@@ -3767,6 +4115,38 @@ func zipReadError(err error) error {
 	default:
 		return archiveReadError(err)
 	}
+}
+
+func rarReadError(err error, password string) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, rardecode.ErrArchiveEncrypted), errors.Is(err, rardecode.ErrArchivedFileEncrypted):
+		if password == "" {
+			return newError(http.StatusUnauthorized, "PASSWORD_REQUIRED", "Archive password is required")
+		}
+		return newError(http.StatusUnauthorized, "PASSWORD_OR_ARCHIVE_INVALID", "Archive password or archive data is invalid")
+	case errors.Is(err, rardecode.ErrBadPassword):
+		return newError(http.StatusUnauthorized, "PASSWORD_OR_ARCHIVE_INVALID", "Archive password or archive data is invalid")
+	case errors.Is(err, rardecode.ErrMultiVolume):
+		return newError(http.StatusBadRequest, "MULTIVOLUME_UNSUPPORTED", "RAR multi-volume archives are not supported")
+	case errors.Is(err, rardecode.ErrDictionaryTooLarge):
+		return newError(http.StatusRequestEntityTooLarge, "RAR_DICTIONARY_TOO_LARGE", "RAR decode dictionary exceeds configured size limit")
+	default:
+		return archiveReadError(err)
+	}
+}
+
+func rarStreamError(err error, password string) error {
+	if err == nil {
+		return nil
+	}
+	var appErr *appError
+	if errors.As(err, &appErr) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return rarReadError(err, password)
 }
 
 func compressionOutputInfo(req compressionRequest) outputInfo {

@@ -54,14 +54,17 @@ const PASSWORD_PROMPT_MAX_ATTEMPTS = 120
 
 const SUPPORTED_MIME_TYPES = [
   'application/gzip',
+  'application/vnd.rar',
   'application/x-7z-compressed',
   'application/x-compressed-tar',
   'application/x-gzip',
+  'application/x-rar',
+  'application/x-rar-compressed',
   'application/x-tar',
   'application/zip'
 ]
 
-const SUPPORTED_EXTENSIONS = ['7z', 'gz', 'tar', 'tar.gz', 'tgz', 'zip']
+const SUPPORTED_EXTENSIONS = ['7z', 'gz', 'rar', 'tar', 'tar.gz', 'tgz', 'zip']
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '')

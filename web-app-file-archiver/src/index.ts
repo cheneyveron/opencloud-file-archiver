@@ -20,11 +20,14 @@ export default defineWebApplication({
         extensions: [
           { extension: "zip", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { extension: "7z", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
+          { extension: "rar", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { extension: "tar", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { extension: "tgz", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { extension: "gz", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { mimeType: "application/zip", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { mimeType: "application/x-7z-compressed", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
+          { mimeType: "application/vnd.rar", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
+          { mimeType: "application/x-rar-compressed", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { mimeType: "application/x-tar", routeName, label: () => $gettext("Browse archive"), hasPriority: true },
           { mimeType: "application/gzip", routeName, label: () => $gettext("Browse archive"), hasPriority: true }
         ],

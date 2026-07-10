@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
@@ -64,22 +65,28 @@ func TestDetectArchiveKindWhitelist(t *testing.T) {
 		"archive.tar.gz": "tar.gz",
 		"archive.tgz":    "tar.gz",
 		"archive.gz":     "gz",
-		"archive.rar":    "",
+		"archive.rar":    "rar",
 	}
 	for name, want := range tests {
 		if got := detectArchiveKind(name, ""); got != want {
 			t.Fatalf("detectArchiveKind(%q) = %q, want %q", name, got, want)
 		}
 	}
+	if got := detectArchiveKind("download.bin", "application/vnd.rar"); got != "rar" {
+		t.Fatalf("detectArchiveKind(application/vnd.rar) = %q, want rar", got)
+	}
+	if got := detectArchiveKind("download.bin", "application/x-rar-compressed"); got != "rar" {
+		t.Fatalf("detectArchiveKind(application/x-rar-compressed) = %q, want rar", got)
+	}
 }
 
-func TestValidateExtractionRejectsRAR(t *testing.T) {
+func TestValidateExtractionAcceptsRAR(t *testing.T) {
 	req := &extractionRequest{
 		Source:      sourceRef{SpaceID: "space", Path: "/archive.rar", Name: "archive.rar"},
 		Destination: destinationRef{SpaceID: "space", FolderPath: "/out"},
 	}
-	if err := validateExtractionRequest(req); err == nil {
-		t.Fatal("validateExtractionRequest accepted rar")
+	if err := validateExtractionRequest(req); err != nil {
+		t.Fatalf("validateExtractionRequest rejected rar: %v", err)
 	}
 }
 
@@ -845,6 +852,68 @@ func TestPreviewContentUsesWorkerSemaphore(t *testing.T) {
 	}
 }
 
+func TestPreviewContentReturnsJSONErrorBeforeHeaders(t *testing.T) {
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	w, err := zw.Create("file.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("valid before mutation")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := newFakeDAV()
+	fake.putFile("/archive.zip", archive.Bytes())
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.zip","name":"archive.zip","mimeType":"application/zip"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	fileEntry := findPreviewEntry(t, preview.Entries, "file.txt")
+
+	fake.putFile("/archive.zip", []byte("not a zip archive anymore"))
+
+	req, err := http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/content", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("content status = %d, body=%s", res.StatusCode, data)
+	}
+	if got := res.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("content type = %q, want application/json", got)
+	}
+	var payload map[string]string
+	decodeJSON(t, res.Body, &payload)
+	if payload["code"] != "PASSWORD_OR_ARCHIVE_INVALID" {
+		t.Fatalf("code = %q, want PASSWORD_OR_ARCHIVE_INVALID", payload["code"])
+	}
+}
+
 func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
 	var archive bytes.Buffer
 	zw := yzip.NewWriter(&archive)
@@ -881,6 +950,154 @@ func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
 	decodeJSON(t, res.Body, &payload)
 	if payload["code"] != "PASSWORD_REQUIRED" {
 		t.Fatalf("code = %q, want PASSWORD_REQUIRED", payload["code"])
+	}
+}
+
+func TestRarPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
+	fake := newFakeDAV()
+	fake.putFile("/archive.rar", rarFixture(t, "plain"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/archive.rar","name":"archive.rar","mimeType":"application/vnd.rar"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	if preview.Format != "rar" {
+		t.Fatalf("preview format = %q, want rar", preview.Format)
+	}
+	fileEntry := findPreviewEntry(t, preview.Entries, "file.txt")
+
+	req, err := http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/content", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("content status = %d, body=%s", res.StatusCode, data)
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "rar preview\n" {
+		t.Fatalf("preview content = %q", data)
+	}
+}
+
+func TestRarPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
+	fake := newFakeDAV()
+	fake.putFile("/secret.rar", rarFixture(t, "encrypted"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/secret.rar","name":"secret.rar","mimeType":"application/x-rar-compressed"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var payload map[string]string
+	decodeJSON(t, res.Body, &payload)
+	if payload["code"] != "PASSWORD_REQUIRED" {
+		t.Fatalf("code = %q, want PASSWORD_REQUIRED", payload["code"])
+	}
+}
+
+func TestRarPreviewHeaderEncryptedArchiveWithPassword(t *testing.T) {
+	fake := newFakeDAV()
+	fake.putFile("/secret.rar", rarFixture(t, "header-encrypted"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/secret.rar","name":"secret.rar","mimeType":"application/vnd.rar"},
+		"password":"testpass"
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	if res.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var preview publicPreview
+	decodeJSON(t, res.Body, &preview)
+	_ = res.Body.Close()
+	fileEntry := findPreviewEntry(t, preview.Entries, "file.txt")
+
+	req, err := http.NewRequest(http.MethodGet, api.URL+"/api/previews/"+preview.ID+"/entries/"+fileEntry.ID+"/content", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("content status = %d, body=%s", res.StatusCode, data)
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "rar preview\n" {
+		t.Fatalf("preview content = %q", data)
+	}
+}
+
+func TestRarPreviewRejectsSymlinkEntry(t *testing.T) {
+	fake := newFakeDAV()
+	fake.putFile("/link.rar", rarFixture(t, "symlink"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/link.rar","name":"link.rar","mimeType":"application/vnd.rar"}
+	}`
+	res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("preview status = %d, body=%s", res.StatusCode, data)
+	}
+	var payload map[string]string
+	decodeJSON(t, res.Body, &payload)
+	if payload["code"] != "UNSUPPORTED_ENTRY" {
+		t.Fatalf("code = %q, want UNSUPPORTED_ENTRY", payload["code"])
 	}
 }
 
@@ -1015,6 +1232,78 @@ func TestZipExtractionEncryptedArchiveRequiresPassword(t *testing.T) {
 	}
 	if got := fake.file("/out/seven-out/seven.txt"); got != nil {
 		t.Fatalf("encrypted file was extracted without password: %q", got)
+	}
+}
+
+func TestRarExtractionEncryptedArchiveRequiresPassword(t *testing.T) {
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/secret.rar", rarFixture(t, "encrypted"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/secret.rar","name":"secret.rar","mimeType":"application/vnd.rar"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusFailed {
+		t.Fatalf("job status = %s, want failed", done.Status)
+	}
+	if done.Code != "PASSWORD_REQUIRED" {
+		t.Fatalf("job code = %q, want PASSWORD_REQUIRED; error=%s", done.Code, done.Error)
+	}
+	if got := fake.file("/out/file.txt"); got != nil {
+		t.Fatalf("encrypted file was extracted without password: %q", got)
+	}
+}
+
+func TestRarExtractionEncryptedArchiveWithPassword(t *testing.T) {
+	fake := newFakeDAV()
+	fake.requirePutContentLength = true
+	fake.putFile("/secret.rar", rarFixture(t, "header-encrypted"))
+	davServer := httptest.NewServer(fake)
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"source":{"spaceId":"space-id","path":"/secret.rar","name":"secret.rar","mimeType":"application/x-rar-compressed"},
+		"destination":{"spaceId":"space-id","folderPath":"/out"},
+		"password":"testpass",
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusSucceeded {
+		t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+	}
+	if got := string(fake.file("/out/file.txt")); got != "rar preview\n" {
+		t.Fatalf("extracted content = %q", got)
 	}
 }
 
@@ -1399,6 +1688,36 @@ func listJobs(t *testing.T, baseURL string) []publicJob {
 	}
 	decodeJSON(t, res.Body, &payload)
 	return payload.Jobs
+}
+
+func findPreviewEntry(t *testing.T, entries []previewEntry, entryPath string) previewEntry {
+	t.Helper()
+	for _, entry := range entries {
+		if entry.Path == entryPath {
+			return entry
+		}
+	}
+	t.Fatalf("entry %q not found in preview entries: %#v", entryPath, entries)
+	return previewEntry{}
+}
+
+func rarFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	fixtures := map[string]string{
+		"plain":            "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgABh0W1DJgIDC4wABIwAtIMCgysmI4AAAQhmaWxlLnR4dAoDExpVUWoI/OAKcmFyIHByZXZpZXcKHXdWUQMFBAA=",
+		"encrypted":        "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgACpJsx0VwIDPKAABIwAtIMCs+TLW4ADAQhmaWxlLnR4dDABAAMPWD4QMbxmndnOyjdniAclT2oMWTLjv7O8TR7mnd9MARsTIhvRFnuJmMJ8nrQKAxMaVVFqCPzgCnKQH9lD3GbDN0Uht97sXzs0R7axD7Thsiqs190xkHDvHXdWUQMFBAA=",
+		"header-encrypted": "UmFyIRoHAQBNkg5jIQQAAAEPu9NOzVLttGBdSsGeIXKbaLCO8uefpUFLtRJV000mbCg61rt3m1f4E16HTzyEonbsKCmhgQl3iyEzT5Cp/30zAvgIE32xWBCoY0sha4hC5yJkwUVg1rcEgs0CJeonA5Xr/VgRCyLv+ns/IKGlUXHVxdSKnzIkabEXuehhOIELt2/SVSP9AR3q+jmCKRgHsRpXmXFV77s45ckzQ8PxT1otNKgXRD0xLhZB7Xn+h4+LYvbtU/b7ASxHAISpVgbv9tf/jdnjLuAip0GNfZNB54+FGPDUDfCy5qAGqWCmX+K50swq9aYg7UJxEiRo3Ps=",
+		"symlink":          "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgADLyKOzMwIDGgAEAP/DAgAAAACAAAEIbGluay50eHQKAxOVVlFqfG8bFQ4FAQAKdGFyZ2V0LnR4dB13VlEDBQQA",
+	}
+	raw, ok := fixtures[name]
+	if !ok {
+		t.Fatalf("unknown rar fixture %q", name)
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func decodeJSON(t *testing.T, r io.Reader, out any) {
