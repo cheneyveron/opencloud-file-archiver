@@ -115,6 +115,9 @@ describe('unzip action', () => {
           const { dispatchModal } = useModals()
           expect(dispatchModal).toHaveBeenCalledTimes(1)
           const modalOptions = vi.mocked(dispatchModal).mock.calls[0][0]
+          expect(modalOptions.elementClass).toBe(
+            'location-picker-modal file-archiver-location-picker-modal'
+          )
           const attrs = modalOptions.customComponentAttrs()
           expect(attrs.submitButtonTitle).toBe('Extract here')
 

@@ -3,6 +3,7 @@ import translations from "../l10n/translations.json";
 import { AppWrapperRoute, defineWebApplication } from "@opencloud-eu/web-pkg";
 import ArchiveViewer from "./components/ArchiveViewer.vue";
 import { useExtensions } from "./composables/useExtensions";
+import "./styles.css";
 
 export default defineWebApplication({
   setup(options) {

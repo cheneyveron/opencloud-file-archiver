@@ -293,7 +293,7 @@ const useCreateUnzipAction = (applicationConfig: ExtractionConfig = {}) => {
 
       resourcesStore.setSelection(resources.map(({ id }) => id))
       dispatchModal({
-        elementClass: 'location-picker-modal',
+        elementClass: 'location-picker-modal file-archiver-location-picker-modal',
         title: $gettext('Extract archive to'),
         customComponent: markRaw(LocationPickerModal),
         hideActions: true,

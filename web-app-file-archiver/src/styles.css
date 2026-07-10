@@ -1,0 +1,23 @@
+.oc-modal.file-archiver-location-picker-modal {
+  max-height: calc(90vh - 4rem);
+  position: relative;
+  transform: translateY(-2rem);
+  z-index: calc(var(--z-index-modal, 1000) + 2);
+}
+
+.oc-modal.file-archiver-location-picker-modal .oc-modal-body-message {
+  height: calc(70vh - 4rem);
+  min-height: 22rem;
+}
+
+@media (max-width: 640px) {
+  .oc-modal.file-archiver-location-picker-modal {
+    max-height: calc(90vh - 2rem);
+    transform: translateY(-1rem);
+  }
+
+  .oc-modal.file-archiver-location-picker-modal .oc-modal-body-message {
+    height: calc(70vh - 2rem);
+    min-height: 18rem;
+  }
+}

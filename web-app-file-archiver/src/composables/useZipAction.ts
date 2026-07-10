@@ -288,7 +288,7 @@ const useCreateZipAction = (
 
     resourcesStore.setSelection(resources.map(({ id }) => id))
     dispatchModal({
-      elementClass: 'location-picker-modal',
+      elementClass: 'location-picker-modal file-archiver-location-picker-modal',
       title: encrypted
         ? $gettext('Create encrypted ZIP archive')
         : format === 'tar.gz'

@@ -476,7 +476,7 @@ function openExtractionPicker(includePaths: string[], title: string) {
     return
   }
   dispatchModal({
-    elementClass: 'location-picker-modal',
+    elementClass: 'location-picker-modal file-archiver-location-picker-modal',
     title,
     customComponent: markRaw(LocationPickerModal),
     hideActions: true,

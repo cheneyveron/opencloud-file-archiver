@@ -101,7 +101,11 @@ describe('ArchiveViewer', () => {
     await checkboxes[1].setValue(true)
     await buttonByText(wrapper, 'Extract selected...').trigger('click')
 
-    const attrs = dispatchModalMock.mock.calls[0][0].customComponentAttrs()
+    const modalOptions = dispatchModalMock.mock.calls[0][0]
+    expect(modalOptions.elementClass).toBe(
+      'location-picker-modal file-archiver-location-picker-modal'
+    )
+    const attrs = modalOptions.customComponentAttrs()
     attrs.callbackFn([{ path: '/target', storageId: 'target-space-id' }])
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
 
