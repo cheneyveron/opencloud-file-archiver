@@ -124,6 +124,8 @@ native integration experiments and upstreaming.
 
 ## Architecture
 
+![OpenCloud File Archiver runtime architecture](docs/architecture.svg)
+
 This repository is split into:
 
 - [web-app-file-archiver](web-app-file-archiver): OpenCloud Web extension for actions, archive
