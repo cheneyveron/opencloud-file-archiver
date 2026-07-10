@@ -1,5 +1,5 @@
-import { AppConfigObject, useRequestHeaders } from '@opencloud-eu/web-pkg'
 import { computed, ref, unref } from 'vue'
+import { ArchiveServiceConfig, useArchiveService } from './useArchiveService'
 
 export type ArchiveJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -27,14 +27,10 @@ export type ArchiveJob = {
   }
 }
 
-type ArchiveConfig = AppConfigObject & {
-  fileArchiverServiceUrl?: string
-  archiveServiceUrl?: string
-  unarchiveServiceUrl?: string
+type ArchiveConfig = ArchiveServiceConfig & {
   archivePollIntervalMs?: number
 }
 
-const DEFAULT_SERVICE_URL = '/archive'
 const DEFAULT_POLL_INTERVAL_MS = 2000
 
 const jobs = ref<ArchiveJob[]>([])
@@ -42,46 +38,12 @@ const dismissed = ref(new Set<string>())
 const loading = ref(false)
 let pollTimer: number | undefined
 
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '')
-}
-
-function getServiceUrl(applicationConfig: ArchiveConfig = {}) {
-  return trimTrailingSlash(
-    applicationConfig.fileArchiverServiceUrl ||
-      applicationConfig.archiveServiceUrl ||
-      applicationConfig.unarchiveServiceUrl ||
-      DEFAULT_SERVICE_URL
-  )
-}
-
 function getPollIntervalMs(applicationConfig: ArchiveConfig = {}) {
   return Number(applicationConfig.archivePollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS)
 }
 
 export function useArchiveJobs(applicationConfig: ArchiveConfig = {}) {
-  const requestHeaders = useRequestHeaders()
-  const serviceUrl = computed(() => getServiceUrl(applicationConfig))
-
-  async function requestJson<T>(path: string, init: RequestInit = {}) {
-    const response = await fetch(`${unref(serviceUrl)}${path}`, {
-      ...init,
-      headers: {
-        ...unref(requestHeaders.headers),
-        ...(init.headers || {}),
-        Accept: 'application/json'
-      }
-    })
-    const payload = await response.json().catch((): undefined => undefined)
-    if (!response.ok) {
-      const message =
-        payload && typeof payload === 'object' && 'error' in payload
-          ? String((payload as { error?: unknown }).error)
-          : 'Archive request failed'
-      throw new Error(message)
-    }
-    return payload as T
-  }
+  const { requestJson } = useArchiveService(applicationConfig)
 
   async function refreshJobs() {
     if (unref(loading)) {
@@ -100,7 +62,7 @@ export function useArchiveJobs(applicationConfig: ArchiveConfig = {}) {
     if (pollTimer) {
       return
     }
-    void refreshJobs()
+    void refreshJobs().catch((): void => undefined)
     pollTimer = window.setInterval((): void => {
       void refreshJobs().catch((): void => undefined)
     }, getPollIntervalMs(applicationConfig))

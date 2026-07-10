@@ -1,0 +1,172 @@
+name: Weekly maintenance
+
+on:
+  # This is the repository's only cron. Dependency refresh, open-PR review,
+  # archived/deprecated checks, and stable OpenCloud discovery all happen here.
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: weekly-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintain:
+    name: Discover, update, and report
+    runs-on: ubuntu-24.04
+    outputs:
+      release_needed: ${{ steps.release-plan.outputs.release_needed }}
+      source_sha: ${{ steps.release-plan.outputs.source_sha }}
+      blockers_clear: ${{ steps.report.outputs.blockers_clear }}
+    steps:
+      - name: Check out the trusted default branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Ensure maintenance labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "release:weekly" --color 1d76db --description "Merge triggers the weekly patch release" --force
+          gh label create "security:high" --color d93f0b --description "Trusted High-severity runtime security release" --force
+          gh label create "security:critical" --color b60205 --description "Trusted Critical runtime security release" --force
+          gh label create "review:automation" --color 5319e7 --description "Maintainer reviewed workflow or release automation changes" --force
+          gh label create "maintenance:blocked" --color e4e669 --description "Automated maintenance or release is blocked" --force
+
+      - name: Validate and read the compatibility lock
+        id: lock
+        run: node .github/compatibility/read-lock.mjs github-output
+
+      - name: Check Renovate bot configuration
+        id: renovate-preflight
+        env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: |
+          if [ -n "$RENOVATE_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::RENOVATE_TOKEN is missing; dependency PR creation is skipped, but lifecycle/upstream reporting will continue."
+          fi
+
+      # RENOVATE_TOKEN must belong to a narrowly scoped bot/GitHub App. GITHUB_TOKEN
+      # is intentionally not used because its PRs would not trigger normal CI.
+      - name: Run the one weekly Renovate refresh
+        if: steps.renovate-preflight.outputs.available == 'true'
+        env:
+          RENOVATE_IMAGE: ${{ steps.lock.outputs.renovate_image }}
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+          RENOVATE_PLATFORM: github
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_AUTODISCOVER: "false"
+          LOG_LEVEL: info
+        run: |
+          docker run --rm \
+            --env RENOVATE_TOKEN \
+            --env RENOVATE_PLATFORM \
+            --env RENOVATE_REPOSITORIES \
+            --env RENOVATE_AUTODISCOVER \
+            --env LOG_LEVEL \
+            "$RENOVATE_IMAGE"
+
+      - name: Set up Go for module discovery
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ steps.lock.outputs.go_version }}
+          cache-dependency-path: file-archiver-service/go.sum
+
+      - name: Set up Node for registry discovery
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ steps.lock.outputs.node_version }}
+
+      - name: Activate locked pnpm for accurate outdated resolution
+        env:
+          PNPM_VERSION: ${{ steps.lock.outputs.pnpm_version }}
+        run: |
+          corepack enable
+          corepack prepare "pnpm@$PNPM_VERSION" --activate
+
+      - name: Generate maintenance report
+        id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RENOVATE_CONFIGURED: ${{ steps.renovate-preflight.outputs.available }}
+        run: node .github/maintenance/weekly-report.mjs weekly-maintenance-report.md
+
+      - name: Add report to workflow summary
+        run: cat weekly-maintenance-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: weekly-maintenance-report-${{ github.run_id }}
+          path: weekly-maintenance-report.md
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Report unresolved maintenance blockers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Automated maintenance blockers"
+          issue_number=$(gh issue list \
+            --state open \
+            --label "maintenance:blocked" \
+            --limit 100 \
+            --json number,title \
+            --jq '.[] | select(.title == "Automated maintenance blockers") | .number' \
+            | head -n 1)
+          if ! grep -q '^Unresolved blockers: 0$' weekly-maintenance-report.md; then
+            if [ -n "$issue_number" ]; then
+              gh issue edit "$issue_number" --body-file weekly-maintenance-report.md
+            else
+              gh issue create \
+                --title "$title" \
+                --label "maintenance:blocked" \
+                --body-file weekly-maintenance-report.md
+            fi
+          elif [ -n "$issue_number" ]; then
+            gh issue close "$issue_number" --comment "All automated maintenance blockers are clear in run $GITHUB_RUN_ID."
+          fi
+
+      - name: Decide whether main changed since the latest formal release
+        id: release-plan
+        run: |
+          source_sha=$(git rev-parse HEAD)
+          latest_tag=$(git tag --list --sort=-version:refname | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }')
+          if [ -z "$latest_tag" ]; then
+            release_needed=true
+          else
+            released_sha=$(git rev-list -n 1 "$latest_tag")
+            if [ "$released_sha" = "$source_sha" ]; then
+              release_needed=false
+            else
+              release_needed=true
+            fi
+          fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
+
+  release-if-needed:
+    name: Weekly full acceptance and patch release
+    needs: maintain
+    if: >-
+      needs.maintain.outputs.release_needed == 'true' &&
+      needs.maintain.outputs.blockers_clear == 'true'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      source_sha: ${{ needs.maintain.outputs.source_sha }}
+      requested_version: ""
+      release_kind: weekly

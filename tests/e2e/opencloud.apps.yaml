@@ -1,0 +1,5 @@
+file-archiver:
+  config:
+    fileArchiverServiceUrl: /archive
+    archivePollIntervalMs: 250
+    archivePasswordPromptPollIntervalMs: 250

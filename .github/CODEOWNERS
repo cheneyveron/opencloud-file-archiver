@@ -1,0 +1,11 @@
+# Automation and release boundaries require an explicit repository-owner review.
+/.github/ @cheneyveron
+/renovate.json @cheneyveron
+/compatibility.lock.yaml @cheneyveron
+/file-archiver-service/Dockerfile @cheneyveron
+/scripts/acceptance.sh @cheneyveron
+/scripts/package-web.go @cheneyveron
+/tests/e2e/ @cheneyveron
+/web-app-file-archiver/tests/e2e/ @cheneyveron
+/INSTALL.md @cheneyveron
+/ROADMAP.md @cheneyveron

@@ -1,0 +1,511 @@
+name: Release accepted artifacts
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Trusted commit on main to release
+        required: true
+        type: string
+      requested_version:
+        description: Optional X.Y.Z; empty means next patch
+        required: false
+        default: ""
+        type: string
+      release_kind:
+        description: weekly or urgent
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Commit on main; empty uses current main
+        required: false
+        default: ""
+        type: string
+      requested_version:
+        description: Optional X.Y.Z; empty means next patch
+        required: false
+        default: ""
+        type: string
+      release_kind:
+        description: Urgent bypasses the weekly cadence but never bypasses acceptance
+        required: true
+        default: urgent
+        type: choice
+        options:
+          - urgent
+          - manual
+
+permissions: {}
+
+concurrency:
+  group: formal-release
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/opencloud-file-archiver-service
+
+jobs:
+  plan:
+    name: Plan immutable release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      version: ${{ steps.plan.outputs.version }}
+      candidate_tag: ${{ steps.plan.outputs.candidate_tag }}
+      opencloud_image: ${{ steps.lock.outputs.opencloud_image }}
+      go_version: ${{ steps.lock.outputs.go_version }}
+      node_version: ${{ steps.lock.outputs.node_version }}
+      pnpm_version: ${{ steps.lock.outputs.pnpm_version }}
+      trivy_image: ${{ steps.lock.outputs.trivy_image }}
+      buildx_version: ${{ steps.lock.outputs.buildx_version }}
+      buildkit_image: ${{ steps.lock.outputs.buildkit_image }}
+      binfmt_image: ${{ steps.lock.outputs.binfmt_image }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve source and version
+        id: plan
+        env:
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+          REQUESTED_VERSION: ${{ inputs.requested_version }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+        run: |
+          requested_sha=$(git rev-parse "${INPUT_SOURCE_SHA:-HEAD}^{commit}")
+          main_sha=$(git rev-parse 'HEAD^{commit}')
+          git merge-base --is-ancestor "$requested_sha" "$main_sha" || {
+            echo "::error::Release source must be on main"
+            exit 1
+          }
+          if [ "$RELEASE_KIND" = manual ] && [ "$requested_sha" != "$main_sha" ]; then
+            echo "::error::A manual release must target the current main HEAD"
+            exit 1
+          fi
+          if [ "$requested_sha" != "$main_sha" ]; then
+            echo "::notice::Main advanced after dispatch; accepting and releasing current main HEAD $main_sha"
+          fi
+          source_sha=$main_sha
+          git checkout --detach "$source_sha"
+
+          if [ -n "$REQUESTED_VERSION" ]; then
+            version=$REQUESTED_VERSION
+          else
+            latest_tag=$(git tag --list --sort=-version:refname | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }')
+            if [ -z "$latest_tag" ]; then
+              version=$(node -p "require('./web-app-file-archiver/package.json').version")
+            else
+              version=$(node -e "const [a,b,c]=process.argv[1].slice(1).split('.').map(Number); if([a,b,c].some(Number.isNaN)) process.exit(1); process.stdout.write([a,b,c+1].join('.'))" "$latest_tag")
+            fi
+          fi
+
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::Version must be strict X.Y.Z"
+            exit 1
+          }
+          if git rev-parse "v$version" >/dev/null 2>&1; then
+            echo "::error::Tag v$version already exists"
+            exit 1
+          fi
+          case "$RELEASE_KIND" in weekly|urgent|manual) ;; *) echo "::error::Unknown release kind"; exit 1;; esac
+
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "candidate_tag=${IMAGE_NAME}:candidate-$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Validate and read the compatibility lock
+        id: lock
+        run: node .github/compatibility/read-lock.mjs github-output
+
+  frontend-artifact:
+    name: Build frontend release ZIP once
+    needs: plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ needs.plan.outputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: web-app-file-archiver/pnpm-lock.yaml
+
+      - name: Set up release packaging Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ needs.plan.outputs.go_version }}
+
+      - name: Install, test, and build
+        working-directory: web-app-file-archiver
+        env:
+          PNPM_VERSION: ${{ needs.plan.outputs.pnpm_version }}
+        run: |
+          corepack enable
+          corepack prepare "pnpm@$PNPM_VERSION" --activate
+          pnpm install --frozen-lockfile
+          pnpm check:types
+          pnpm exec vitest run
+          pnpm build
+
+      - name: Package the standard directory layout
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          go run ./scripts/package-web.go create \
+            web-app-file-archiver/dist \
+            "$GITHUB_WORKSPACE/file-archiver-$VERSION.zip"
+          sha256sum "file-archiver-$VERSION.zip" > "file-archiver-$VERSION.zip.sha256"
+
+      - name: Upload the only frontend release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-frontend-${{ needs.plan.outputs.source_sha }}
+          path: |
+            file-archiver-${{ needs.plan.outputs.version }}.zip
+            file-archiver-${{ needs.plan.outputs.version }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  backend-candidate:
+    name: Build multiarch backend candidate once
+    needs: plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      candidate_ref: ${{ steps.reference.outputs.candidate_ref }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up security-patched Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ needs.plan.outputs.go_version }}
+          cache-dependency-path: file-archiver-service/go.sum
+
+      - name: Verify backend before packaging
+        working-directory: file-archiver-service
+        run: |
+          go test -race ./...
+          go vet ./...
+          go build -trimpath -o /tmp/file-archiver-service ./cmd/file-archiver-service
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        with:
+          image: ${{ needs.plan.outputs.binfmt_image }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: ${{ needs.plan.outputs.buildx_version }}
+          driver-opts: image=${{ needs.plan.outputs.buildkit_image }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push candidate manifest
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: file-archiver-service
+          file: file-archiver-service/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ needs.plan.outputs.candidate_tag }}
+          labels: |
+            org.opencontainers.image.title=OpenCloud File Archiver Service
+            org.opencontainers.image.description=Required backend for the OpenCloud File Archiver Web extension
+            org.opencontainers.image.version=${{ needs.plan.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.plan.outputs.source_sha }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/${{ needs.plan.outputs.source_sha }}/INSTALL.md
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Freeze candidate by digest
+        id: reference
+        run: echo "candidate_ref=${IMAGE_NAME}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  full-acceptance:
+    name: Full acceptance / exact release artifacts
+    needs: [plan, frontend-artifact, backend-candidate]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Download the already-built frontend artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-frontend-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/release-artifacts
+
+      - name: Verify ZIP layout and checksum
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: bash .github/acceptance/verify-release-frontend.sh "$RUNNER_TEMP/release-artifacts/file-archiver-$VERSION.zip"
+
+      - name: Log in to GHCR for the private candidate tag
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up the locked Docker Buildx client
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: ${{ needs.plan.outputs.buildx_version }}
+          driver-opts: image=${{ needs.plan.outputs.buildkit_image }}
+
+      - name: Reject fixed High/Critical vulnerabilities on both image architectures
+        env:
+          CANDIDATE_REF: ${{ needs.backend-candidate.outputs.candidate_ref }}
+          TRIVY_IMAGE: ${{ needs.plan.outputs.trivy_image }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        run: |
+          for platform in linux/amd64 linux/arm64; do
+            docker run --rm \
+              --env TRIVY_USERNAME \
+              --env TRIVY_PASSWORD \
+              "$TRIVY_IMAGE" image \
+              --platform "$platform" \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              "$CANDIDATE_REF"
+          done
+
+      - name: Verify the candidate is an amd64/arm64 manifest
+        env:
+          CANDIDATE_REF: ${{ needs.backend-candidate.outputs.candidate_ref }}
+        run: |
+          raw=$(docker buildx imagetools inspect "$CANDIDATE_REF" --raw)
+          echo "$raw" | jq -e '
+            [.manifests[].platform
+              | select(.os == "linux" and (.architecture == "amd64" or .architecture == "arm64"))
+              | "\(.os)/\(.architecture)"]
+            | unique
+            | (index("linux/amd64") != null and index("linux/arm64") != null)
+          '
+
+      - name: Run the one authoritative acceptance process on exact artifacts
+        env:
+          OPENCLOUD_IMAGE: ${{ needs.plan.outputs.opencloud_image }}
+          ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output
+          VERSION: ${{ needs.plan.outputs.version }}
+          CANDIDATE_REF: ${{ needs.backend-candidate.outputs.candidate_ref }}
+        run: |
+          test -f scripts/acceptance.sh
+          bash scripts/acceptance.sh \
+            --frontend-zip "$RUNNER_TEMP/release-artifacts/file-archiver-$VERSION.zip" \
+            --backend-image "$CANDIDATE_REF"
+
+      - name: Preserve full acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-acceptance-${{ needs.plan.outputs.source_sha }}
+          path: |
+            ${{ runner.temp }}/acceptance-output
+            /tmp/opencloud-file-archiver-acceptance-results-*
+          if-no-files-found: ignore
+          retention-days: 90
+
+  release-preflight:
+    name: Recheck compatibility and dependency lifecycle before publication
+    needs: [plan, full-acceptance]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the exact accepted source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Revalidate the compatibility lock
+        id: lock
+        run: node .github/compatibility/read-lock.mjs github-output
+
+      - name: Refuse to publish an accepted commit that is no longer main HEAD
+        env:
+          ACCEPTED_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_main=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          test "$current_main" = "$ACCEPTED_SOURCE_SHA"
+
+      - name: Set up Go for lifecycle discovery
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ steps.lock.outputs.go_version }}
+          cache-dependency-path: file-archiver-service/go.sum
+
+      - name: Set up Node for lifecycle discovery
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ steps.lock.outputs.node_version }}
+
+      - name: Activate locked pnpm
+        env:
+          PNPM_VERSION: ${{ steps.lock.outputs.pnpm_version }}
+        run: |
+          corepack enable
+          corepack prepare "pnpm@$PNPM_VERSION" --activate
+
+      - name: Recheck latest stable OpenCloud and every dependency lifecycle
+        id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PREFLIGHT: "true"
+        run: node .github/maintenance/weekly-report.mjs release-preflight-report.md
+
+      - name: Enforce final release blockers
+        env:
+          BLOCKERS_CLEAR: ${{ steps.report.outputs.blockers_clear }}
+        run: |
+          cat release-preflight-report.md >> "$GITHUB_STEP_SUMMARY"
+          test "$BLOCKERS_CLEAR" = true
+
+      - name: Preserve final release preflight evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-preflight-${{ needs.plan.outputs.source_sha }}
+          path: release-preflight-report.md
+          if-no-files-found: ignore
+          retention-days: 90
+
+  publish:
+    name: Retag accepted manifest and publish release
+    needs: [plan, frontend-artifact, backend-candidate, full-acceptance, release-preflight]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    environment: release
+    steps:
+      - name: Download accepted frontend artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-frontend-${{ needs.plan.outputs.source_sha }}
+          path: ${{ runner.temp }}/release-artifacts
+
+      - name: Prepare a draft GitHub Release before publishing image tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          CANDIDATE_DIGEST: ${{ needs.backend-candidate.outputs.digest }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+        working-directory: ${{ runner.temp }}/release-artifacts
+        run: |
+          notes="$RUNNER_TEMP/release-notes.md"
+          printf '%s\n' \
+            "OpenCloud File Archiver $VERSION" \
+            "" \
+            "The backend service is required; the Web extension is not functional without the matching backend image." \
+            "" \
+            "- Frontend: file-archiver-$VERSION.zip" \
+            "- Backend: $IMAGE_NAME:$VERSION@$CANDIDATE_DIGEST (linux/amd64, linux/arm64)" \
+            "- Release kind: $RELEASE_KIND" \
+            "- Accepted commit: $SOURCE_SHA" \
+            "" \
+            "Installation and rollback: https://github.com/${{ github.repository }}/blob/v$VERSION/INSTALL.md" \
+            > "$notes"
+
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+            gh release edit "v$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "OpenCloud File Archiver $VERSION" \
+              --notes-file "$notes"
+            gh release upload "v$VERSION" \
+              "file-archiver-$VERSION.zip" \
+              "file-archiver-$VERSION.zip.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "v$VERSION" \
+              "file-archiver-$VERSION.zip" \
+              "file-archiver-$VERSION.zip.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "OpenCloud File Archiver $VERSION" \
+              --notes-file "$notes" \
+              --draft
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up the locked Docker Buildx client
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: ${{ needs.plan.outputs.buildx_version }}
+          driver-opts: image=${{ needs.plan.outputs.buildkit_image }}
+
+      - name: Publish immutable version and moving latest image tags without rebuilding
+        env:
+          CANDIDATE_REF: ${{ needs.backend-candidate.outputs.candidate_ref }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          if existing_digest=$(docker buildx imagetools inspect "$IMAGE_NAME:$VERSION" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"'); then
+            test "$existing_digest" = "${{ needs.backend-candidate.outputs.digest }}" || {
+              echo "::error::$IMAGE_NAME:$VERSION already points to a different digest"
+              exit 1
+            }
+          else
+            docker buildx imagetools create --tag "$IMAGE_NAME:$VERSION" "$CANDIDATE_REF"
+          fi
+          published_digest=$(docker buildx imagetools inspect "$IMAGE_NAME:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test "$published_digest" = "${{ needs.backend-candidate.outputs.digest }}"
+          docker buildx imagetools create --tag "$IMAGE_NAME:latest" "$CANDIDATE_REF"
+
+      - name: Publish the prepared GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          gh release edit "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --latest

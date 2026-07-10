@@ -1,0 +1,39 @@
+{
+	admin off
+	auto_https disable_redirects
+}
+
+# The backend reaches OpenCloud through this container-only HTTP endpoint.
+# Caddy validates no upstream certificate because OpenCloud generates a fresh
+# self-signed certificate for every disposable acceptance environment.
+:8080 {
+	reverse_proxy https://opencloud:9200 {
+		header_up Host {$E2E_PUBLIC_HOST}:{$E2E_PORT}
+		header_up X-Forwarded-Host {$E2E_PUBLIC_HOST}:{$E2E_PORT}
+		header_up X-Forwarded-Proto https
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+# The browser gets one HTTPS origin for both OpenCloud and /archive. Binding
+# explicitly to all container interfaces keeps the IP-address site reachable
+# through Docker's loopback-only published port.
+https://{$E2E_PUBLIC_HOST}:{$E2E_PORT} {
+	bind 0.0.0.0
+	tls internal
+
+	@fileArchiver path /archive /archive/*
+	handle @fileArchiver {
+		reverse_proxy file-archiver:8080
+	}
+
+	handle {
+		reverse_proxy https://opencloud:9200 {
+			transport http {
+				tls_insecure_skip_verify
+			}
+		}
+	}
+}

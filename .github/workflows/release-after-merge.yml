@@ -1,0 +1,25 @@
+name: Immediate accepted release after urgent security merge
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: urgent-release-dispatch
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      (contains(github.event.pull_request.labels.*.name, 'security:critical') ||
+       contains(github.event.pull_request.labels.*.name, 'security:high'))
+    uses: ./.github/workflows/release.yml
+    with:
+      source_sha: ${{ github.event.pull_request.merge_commit_sha }}
+      requested_version: ""
+      release_kind: urgent

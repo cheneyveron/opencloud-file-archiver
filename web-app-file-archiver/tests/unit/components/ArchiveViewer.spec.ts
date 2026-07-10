@@ -54,7 +54,7 @@ describe('ArchiveViewer', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mountViewer()
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
 
     await buttonByText(wrapper, 'dir').trigger('click')
     await vi.waitFor(() => {
@@ -70,7 +70,7 @@ describe('ArchiveViewer', () => {
     await buttonByText(wrapper, 'file.txt').trigger('click')
     await vi.waitFor(() => expect(wrapper.text()).toContain('hello from archive'))
 
-    expect(fetchMock.mock.calls[0]).toEqual([
+    expect(fetchMock.mock.calls[1]).toEqual([
       '/archive/api/previews',
       expect.objectContaining({ method: 'POST' })
     ])
@@ -82,7 +82,9 @@ describe('ArchiveViewer', () => {
         ],
         [
           '/archive/api/previews/preview-1/entries/file-entry/content',
-          expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } })
+          expect.objectContaining({
+            headers: expect.objectContaining({ Authorization: 'Bearer test-token' })
+          })
         ]
       ])
     )
@@ -95,7 +97,7 @@ describe('ArchiveViewer', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mountViewer()
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
 
     const checkboxes = wrapper.findAll('input[type="checkbox"]')
     await checkboxes[1].setValue(true)
@@ -107,7 +109,7 @@ describe('ArchiveViewer', () => {
     )
     const attrs = modalOptions.customComponentAttrs()
     attrs.callbackFn([{ path: '/target', storageId: 'target-space-id' }])
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
 
     await vi.waitFor(() => {
       expect(fetchMock.mock.calls).toEqual(
@@ -149,7 +151,7 @@ describe('ArchiveViewer', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mountViewer()
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
 
     await buttonByText(wrapper, 'Extract To...').trigger('click')
     const attrs = dispatchModalMock.mock.calls[0][0].customComponentAttrs()
@@ -178,7 +180,7 @@ describe('ArchiveViewer', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mountViewer()
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
 
     await buttonByText(wrapper, 'Download').trigger('click')
 
@@ -193,6 +195,22 @@ describe('ArchiveViewer', () => {
       )
       expect(clickMock).toHaveBeenCalled()
     })
+  })
+
+  it('renders backend installation guidance when the backend is missing', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: 'not found' }, 404))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mountViewer()
+
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('The File Archiver backend is not installed')
+      expect(wrapper.text()).toContain(
+        'Contact your administrator or follow the backend installation guide.'
+      )
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('/archive/healthz', expect.anything())
   })
 })
 
@@ -275,6 +293,9 @@ function routeFetch(
   init: RequestInit = {},
   { rootEntries }: { rootEntries: unknown[] }
 ) {
+  if (url === '/archive/healthz') {
+    return jsonResponse({ status: 'ok' }, 200)
+  }
   if (url === '/archive/api/previews') {
     return jsonResponse({ id: 'preview-1', format: 'zip' }, 201)
   }

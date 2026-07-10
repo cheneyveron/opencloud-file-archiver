@@ -10,6 +10,10 @@ It is built as an OpenCloud Web extension plus a small companion service. The ex
 users the archive actions where they already work. The service performs the heavy archive work
 through WebDAV, using the user's own OpenCloud authorization.
 
+The companion backend is required; the Web extension cannot compress, extract, browse, or download
+archive entries by itself. Install the matching frontend ZIP and backend image from one numbered
+release by following [INSTALL.md](INSTALL.md).
+
 ## Highlights
 
 - Create ZIP, encrypted ZIP and tar.gz archives from selected files or folders.
@@ -155,10 +159,10 @@ Deploy `web-app-file-archiver/dist` as:
 WEB_ASSET_APPS_PATH/file-archiver
 ```
 
-Run the backend service image:
+Run the required backend service image from the same numbered release:
 
 ```text
-ghcr.io/cheneyveron/opencloud-file-archiver-service:main
+ghcr.io/cheneyveron/opencloud-file-archiver-service:X.Y.Z
 ```
 
 Route `/archive` to the service and configure the app:
@@ -170,7 +174,8 @@ file-archiver:
     archivePollIntervalMs: 2000
 ```
 
-See [deploy/README.md](deploy/README.md) for a Compose-style example.
+See [INSTALL.md](INSTALL.md) for the verified release artifacts and [deploy/README.md](deploy/README.md)
+for a Compose-style example.
 
 ## Local Development
 

@@ -177,18 +177,17 @@
 
 <script setup lang="ts">
 import {
-  AppConfigObject,
   LocationPickerModal,
   useFolderLink,
   useGetMatchingSpace,
   useMessages,
-  useModals,
-  useRequestHeaders
+  useModals
 } from '@opencloud-eu/web-pkg'
 import { Resource, SpaceResource } from '@opencloud-eu/web-client'
 import { computed, markRaw, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useAskForArchivePassword } from '../composables/useAskForArchivePassword'
+import { ArchiveServiceConfig, useArchiveService } from '../composables/useArchiveService'
 
 type ArchiveEntry = {
   id: string
@@ -209,11 +208,7 @@ type ArchivePreview = {
   entries?: ArchiveEntry[]
 }
 
-type ArchiveConfig = AppConfigObject & {
-  fileArchiverServiceUrl?: string
-  archiveServiceUrl?: string
-  unarchiveServiceUrl?: string
-}
+type ArchiveConfig = ArchiveServiceConfig
 
 const props = defineProps<{
   applicationConfig?: ArchiveConfig
@@ -221,10 +216,8 @@ const props = defineProps<{
   space: SpaceResource
 }>()
 
-const DEFAULT_SERVICE_URL = '/archive'
-
 const { $gettext } = useGettext()
-const requestHeaders = useRequestHeaders()
+const archiveService = useArchiveService(props.applicationConfig || {})
 const { askForArchivePassword } = useAskForArchivePassword()
 const { showErrorMessage, showMessage } = useMessages()
 const { dispatchModal } = useModals()
@@ -266,50 +259,11 @@ const unsupportedPreviewMessage = computed(() => {
   return $gettext('Preview is not available for this file.')
 })
 
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '')
-}
-
-function getServiceUrl() {
-  const config = props.applicationConfig || {}
-  return trimTrailingSlash(
-    config.fileArchiverServiceUrl ||
-      config.archiveServiceUrl ||
-      config.unarchiveServiceUrl ||
-      DEFAULT_SERVICE_URL
-  )
-}
-
 function getResourceName(resource: Resource) {
   return resource.name || resource.path.split('/').filter(Boolean).pop() || 'archive'
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}) {
-  const response = await fetch(`${getServiceUrl()}${path}`, {
-    ...init,
-    headers: {
-      ...unref(requestHeaders.headers),
-      ...(init.headers || {}),
-      Accept: 'application/json'
-    }
-  })
-  const payload = await response.json().catch((): undefined => undefined)
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? String((payload as { error?: unknown }).error)
-        : $gettext('Archive request failed')
-    const code =
-      payload && typeof payload === 'object' && 'code' in payload
-        ? String((payload as { code?: unknown }).code)
-        : ''
-    const err = new Error(message) as Error & { code?: string; status?: number }
-    err.code = code
-    err.status = response.status
-    throw err
-  }
-  return payload as T
-}
+const requestJson = archiveService.requestJson
 
 async function createPreview(inputPassword = '') {
   return requestJson<ArchivePreview>('/api/previews', {
@@ -393,22 +347,10 @@ async function loadPreviewContent(entry: ArchiveEntry) {
   }
   previewLoading.value = true
   try {
-    const response = await fetch(
-      `${getServiceUrl()}/api/previews/${encodeURIComponent(unref(preview).id)}/entries/${encodeURIComponent(entry.id)}/content`,
-      {
-        headers: {
-          ...unref(requestHeaders.headers)
-        }
-      }
+    const response = await archiveService.request(
+      `/api/previews/${encodeURIComponent(unref(preview).id)}/entries/${encodeURIComponent(entry.id)}/content`,
+      { headers: { Accept: '*/*' } }
     )
-    if (!response.ok) {
-      const payload = await response.json().catch((): undefined => undefined)
-      throw new Error(
-        payload && typeof payload === 'object' && 'error' in payload
-          ? String((payload as { error?: unknown }).error)
-          : $gettext('Preview failed')
-      )
-    }
     if (entry.previewKind === 'text') {
       previewText.value = await response.text()
       return
@@ -556,7 +498,7 @@ function resolveServiceUrl(value: string) {
   const serviceRelativePath = value.startsWith('/archive/')
     ? value.slice('/archive'.length)
     : value
-  return `${getServiceUrl()}${serviceRelativePath}`
+  return `${archiveService.serviceUrl}${serviceRelativePath}`
 }
 
 function entryActionToggleId(entry: ArchiveEntry) {

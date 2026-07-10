@@ -946,20 +946,32 @@ func (s *server) handleDownloadJob(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, newError(http.StatusConflict, "JOB_ALREADY_STARTED", "Download job already started"))
 		return
 	}
-	defer j.cancel()
-
-	filename := archiveOutputName(*j.Compression)
-	w.Header().Set("Content-Type", archiveContentType(j.Format))
-	w.Header().Set("Content-Disposition", contentDisposition(filename))
-	w.Header().Set("Content-Transfer-Encoding", "binary")
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	j.mu.Lock()
+	previousCancel := j.cancel
 	j.ctx, j.cancel = ctx, cancel
 	j.mu.Unlock()
+	previousCancel()
 
-	writer := io.Writer(w)
+	workDir, err := os.MkdirTemp(s.cfg.tmpDir, "download-"+j.ID+"-")
+	if err != nil {
+		s.failJob(j, err)
+		writeError(w, err)
+		return
+	}
+	defer os.RemoveAll(workDir)
+
+	archivePath := filepath.Join(workDir, "archive")
+	archive, err := os.Create(archivePath)
+	if err != nil {
+		s.failJob(j, err)
+		writeError(w, err)
+		return
+	}
+
+	writer := io.Writer(archive)
 	if s.cfg.maxOutputBytes > 0 {
 		writer = &limitWriter{
 			ctx:       ctx,
@@ -969,9 +981,41 @@ func (s *server) handleDownloadJob(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 
-	if err := s.withWorker(ctx, func() error {
+	compressionErr := s.withWorker(ctx, func() error {
 		return s.runCompressionToWriter(j, writer)
-	}); err != nil {
+	})
+	closeErr := archive.Close()
+	if compressionErr != nil {
+		s.failJob(j, compressionErr)
+		writeError(w, compressionErr)
+		return
+	}
+	if closeErr != nil {
+		s.failJob(j, closeErr)
+		writeError(w, closeErr)
+		return
+	}
+
+	archive, err = os.Open(archivePath)
+	if err != nil {
+		s.failJob(j, err)
+		writeError(w, err)
+		return
+	}
+	defer archive.Close()
+	stat, err := archive.Stat()
+	if err != nil {
+		s.failJob(j, err)
+		writeError(w, err)
+		return
+	}
+
+	filename := archiveOutputName(*j.Compression)
+	w.Header().Set("Content-Type", archiveContentType(j.Format))
+	w.Header().Set("Content-Disposition", contentDisposition(filename))
+	w.Header().Set("Content-Transfer-Encoding", "binary")
+	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	if _, err := io.Copy(contextWriter{ctx: ctx, w: w}, archive); err != nil {
 		s.failJob(j, err)
 		return
 	}

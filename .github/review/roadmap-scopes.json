@@ -1,0 +1,50 @@
+{
+  "RM-001": [
+    "file-archiver-service/go.mod",
+    "file-archiver-service/go.sum",
+    "file-archiver-service/Dockerfile",
+    "web-app-file-archiver/package.json",
+    "web-app-file-archiver/pnpm-lock.yaml",
+    "web-app-file-archiver/pnpm-workspace.yaml",
+    "compatibility.lock.yaml",
+    "renovate.json",
+    ".github/**",
+    "ROADMAP.md",
+    "INSTALL.md",
+    "deploy/**"
+  ],
+  "RM-002": [
+    "tests/**",
+    "scripts/**",
+    "web-app-file-archiver/tests/e2e/**",
+    "web-app-file-archiver/package.json",
+    "web-app-file-archiver/pnpm-lock.yaml",
+    "web-app-file-archiver/pnpm-workspace.yaml",
+    ".github/**",
+    "ROADMAP.md",
+    "INSTALL.md",
+    "deploy/**"
+  ],
+  "RM-003": [
+    ".github/**",
+    "renovate.json",
+    "compatibility.lock.yaml",
+    "ROADMAP.md",
+    "INSTALL.md",
+    "deploy/**",
+    "README.md"
+  ],
+  "RM-004": [
+    "core-web-patches/**",
+    "web-app-file-archiver/**",
+    "compatibility.lock.yaml",
+    ".github/**",
+    "ROADMAP.md"
+  ],
+  "RM-005": [
+    "file-archiver-service/**",
+    "web-app-file-archiver/**",
+    "README.md",
+    "ROADMAP.md"
+  ]
+}

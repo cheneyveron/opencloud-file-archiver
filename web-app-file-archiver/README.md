@@ -13,6 +13,8 @@ It registers context-menu actions for:
 
 The extension talks to the companion `file-archiver-service` through `/archive` by default.
 Override the service path with the app config property `fileArchiverServiceUrl`.
+The backend service is required; install the matching frontend ZIP and backend image together by
+following [INSTALL.md](../INSTALL.md).
 
 This app does not require the core web patches in `../core-web-patches`. It stays compatible
 with older OpenCloud Web builds by:

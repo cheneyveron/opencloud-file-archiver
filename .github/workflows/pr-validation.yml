@@ -1,0 +1,71 @@
+name: Pull request validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+  merge_group:
+
+# This workflow intentionally has no write permission and receives no repository
+# secrets. Never convert it to pull_request_target.
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Automated review / policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the proposed revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Review roadmap scope and security-sensitive changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git cat-file -e "${BASE_SHA}:.github/review/pr-policy.mjs" 2>/dev/null; then
+            git show "${BASE_SHA}:.github/review/pr-policy.mjs" | node --input-type=module
+          else
+            # Bootstrap only: once this policy exists on main, PRs cannot replace
+            # the executable reviewer with their proposed copy.
+            node .github/review/pr-policy.mjs
+          fi
+
+      - name: Merge queue policy marker
+        if: github.event_name == 'merge_group'
+        run: echo "Merge queue revisions were already reviewed as pull requests."
+
+  acceptance:
+    name: Full acceptance / locked OpenCloud stable
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the proposed revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run the one authoritative acceptance process
+        env:
+          ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output
+        run: |
+          test -f scripts/acceptance.sh
+          bash scripts/acceptance.sh
+
+      - name: Preserve acceptance diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: acceptance-${{ github.event.pull_request.number || github.run_id }}
+          path: |
+            ${{ runner.temp }}/acceptance-output
+            /tmp/opencloud-file-archiver-acceptance-results-*
+          if-no-files-found: ignore
+          retention-days: 14

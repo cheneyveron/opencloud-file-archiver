@@ -2,13 +2,14 @@
   "name": "web-app-file-archiver",
   "version": "1.0.0",
   "private": true,
-  "description": "OpenCloud Web file archiver actions",
+  "description": "OpenCloud Web file archiver extension; requires the matching file-archiver backend service (see INSTALL.md)",
   "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
-    "build": "pnpm vite build",
-    "build:w": "pnpm vite build --watch --mode development",
+    "build": "vite build",
+    "build:w": "vite build --watch --mode development",
     "check:types": "vue-tsc --noEmit",
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
     "test:unit": "NODE_OPTIONS=--unhandled-rejections=throw vitest"
   },
   "dependencies": {},

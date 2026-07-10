@@ -1,5 +1,4 @@
 import {
-  AppConfigObject,
   FileAction,
   FileActionOptions,
   LocationPickerModal,
@@ -7,7 +6,6 @@ import {
   useGetMatchingSpace,
   useMessages,
   useModals,
-  useRequestHeaders,
   useResourcesStore
 } from '@opencloud-eu/web-pkg'
 import { Resource } from '@opencloud-eu/web-client'
@@ -15,16 +13,17 @@ import { computed, markRaw, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useAskForArchiveFileName } from './useAskForArchiveFileName'
 import { useAskForZipPassword } from './useAskForZipPassword'
+import {
+  ArchiveServiceConfig,
+  getArchiveServiceUrl,
+  useArchiveService
+} from './useArchiveService'
 
-const DEFAULT_SERVICE_URL = '/archive'
 const DEFAULT_ARCHIVE_NAME = 'archive'
 
 type ArchiveFormat = 'zip' | 'tar.gz'
 
-export type ArchiveConfig = AppConfigObject & {
-  fileArchiverServiceUrl?: string
-  archiveServiceUrl?: string
-  unarchiveServiceUrl?: string
+export type ArchiveConfig = ArchiveServiceConfig & {
   fileArchiverUseNestedActions?: boolean
 }
 
@@ -39,19 +38,6 @@ type CompressionJob = {
   output?: {
     downloadUrl?: string
   }
-}
-
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '')
-}
-
-function getServiceUrl(applicationConfig: ArchiveConfig) {
-  return trimTrailingSlash(
-    applicationConfig.fileArchiverServiceUrl ||
-      applicationConfig.archiveServiceUrl ||
-      applicationConfig.unarchiveServiceUrl ||
-      DEFAULT_SERVICE_URL
-  )
 }
 
 function getResourceName(resource: Resource) {
@@ -114,7 +100,18 @@ function getDownloadUrl(applicationConfig: ArchiveConfig, job: CompressionJob) {
   const serviceRelativePath = downloadUrl.startsWith('/archive/')
     ? downloadUrl.slice('/archive'.length)
     : downloadUrl
-  return `${getServiceUrl(applicationConfig)}${serviceRelativePath}`
+  return `${getArchiveServiceUrl(applicationConfig)}${serviceRelativePath}`
+}
+
+function startBrowserDownload(url: string, fileName: string) {
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.rel = 'noopener'
+  link.hidden = true
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 const useCreateZipAction = (
@@ -123,33 +120,13 @@ const useCreateZipAction = (
 ) => {
   const { $gettext } = useGettext()
   const resourcesStore = useResourcesStore()
-  const requestHeaders = useRequestHeaders()
+  const { requestJson } = useArchiveService(applicationConfig)
   const { showErrorMessage, showMessage } = useMessages()
   const { askForArchiveFileName } = useAskForArchiveFileName()
   const { askForZipPassword } = useAskForZipPassword()
   const { dispatchModal } = useModals()
   const { getParentFolderLink } = useFolderLink()
   const { getMatchingSpace } = useGetMatchingSpace()
-
-  async function requestJson<T>(path: string, init: RequestInit = {}) {
-    const response = await fetch(`${getServiceUrl(applicationConfig)}${path}`, {
-      ...init,
-      headers: {
-        ...unref(requestHeaders.headers),
-        ...(init.headers || {}),
-        Accept: 'application/json'
-      }
-    })
-    const payload = await response.json().catch((): undefined => undefined)
-    if (!response.ok) {
-      const message =
-        payload && typeof payload === 'object' && 'error' in payload
-          ? String((payload as { error?: unknown }).error)
-          : $gettext('Archive creation failed')
-      throw new Error(message)
-    }
-    return payload as T
-  }
 
   async function createCompressionJob({
     space,
@@ -254,7 +231,7 @@ const useCreateZipAction = (
       archiveFileName,
       password
     })
-    window.location.assign(getDownloadUrl(applicationConfig, job))
+    startBrowserDownload(getDownloadUrl(applicationConfig, job), archiveFileName)
   }
 
   async function actionHandler(args: FileActionOptions) {

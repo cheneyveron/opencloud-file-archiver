@@ -1,0 +1,283 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "Etc/UTC",
+  "schedule": [
+    "at any time"
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Dependency and compatibility maintenance",
+  "minimumReleaseAge": "3 days",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 0,
+  "platformAutomerge": true,
+  "rebaseWhen": "behind-base-branch",
+  "labels": [
+    "dependencies"
+  ],
+  "prBodyNotes": [
+    "Roadmap item: RM-001",
+    "Security impact: Renovate-generated dependency change; verify advisories and runtime reachability in required checks.",
+    "Security advisory: N/A unless this is a vulnerability-alert PR.",
+    "Validation: Required PR checks plus release artifact acceptance before publication.",
+    "Unexpected changes: None expected outside dependency manifests, lockfiles, container bases, and workflow action references."
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "dependencies",
+      "security:triage"
+    ],
+    "schedule": [
+      "at any time"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Accumulate all ordinary non-breaking updates in one weekly release PR",
+      "matchUpdateTypes": [
+        "digest",
+        "pin",
+        "pinDigest",
+        "patch",
+        "minor",
+        "lockFileMaintenance"
+      ],
+      "matchJsonata": [
+        "isVulnerabilityAlert != true"
+      ],
+      "groupName": "weekly non-breaking maintenance",
+      "groupSlug": "weekly-non-breaking-maintenance",
+      "labels": [
+        "dependencies",
+        "release:weekly"
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Security-alert PRs bypass minimum age but need trusted severity triage",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true"
+      ],
+      "minimumReleaseAge": "0 days",
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "security:triage"
+      ]
+    },
+    {
+      "description": "High runtime vulnerability fixes are labeled and may merge after required checks",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and vulnerabilitySeverity = 'HIGH'"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pin",
+        "pinDigest",
+        "patch",
+        "minor"
+      ],
+      "minimumReleaseAge": "0 days",
+      "labels": [
+        "dependencies",
+        "security:high"
+      ],
+      "prBodyNotes": [
+        "Security impact: High runtime vulnerability reported by the registry advisory feed.",
+        "Security advisory: See the GHSA/CVE linked in the vulnerability section above."
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Non-urgent vulnerability fixes join the weekly accepted patch release",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and (vulnerabilitySeverity = 'LOW' or vulnerabilitySeverity = 'MEDIUM' or vulnerabilitySeverity = 'MODERATE' or vulnerabilitySeverity = 'UNKNOWN')"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pin",
+        "pinDigest",
+        "patch",
+        "minor"
+      ],
+      "labels": [
+        "dependencies",
+        "security:triage",
+        "release:weekly"
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Critical runtime vulnerability fixes are labeled and may merge after required checks",
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and vulnerabilitySeverity = 'CRITICAL'"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pin",
+        "pinDigest",
+        "patch",
+        "minor"
+      ],
+      "minimumReleaseAge": "0 days",
+      "labels": [
+        "dependencies",
+        "security:critical"
+      ],
+      "prBodyNotes": [
+        "Security impact: Critical runtime vulnerability reported by the registry advisory feed.",
+        "Security advisory: See the GHSA/CVE linked in the vulnerability section above."
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Workflow action updates need an explicit automation review label",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchJsonata": [
+        "isVulnerabilityAlert != true"
+      ],
+      "labels": [
+        "dependencies",
+        "release:weekly"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Keep the OpenCloud release marker and exact container digest in one PR",
+      "matchPackageNames": [
+        "opencloud-eu/opencloud",
+        "opencloudeu/opencloud"
+      ],
+      "groupName": "OpenCloud stable compatibility target",
+      "groupSlug": "opencloud-stable-compatibility"
+    },
+    {
+      "description": "Keep Playwright tests and their exact browser image together",
+      "matchPackageNames": [
+        "@playwright/test",
+        "mcr.microsoft.com/playwright"
+      ],
+      "groupName": "Playwright test runtime",
+      "groupSlug": "playwright-test-runtime"
+    },
+    {
+      "description": "OpenCloud owns the go.mod compatibility minimum; never bump it independently",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepTypes": [
+        "golang"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Breaking/major updates require roadmap analysis and never automerge",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "dependencies",
+        "roadmap:required"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Major High security fixes retain urgent identity but require manual impact review",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and vulnerabilitySeverity = 'HIGH'"
+      ],
+      "labels": [
+        "dependencies",
+        "roadmap:required",
+        "security:high"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Major Critical security fixes retain urgent identity but require manual impact review",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "matchJsonata": [
+        "isVulnerabilityAlert = true and vulnerabilitySeverity = 'CRITICAL'"
+      ],
+      "labels": [
+        "dependencies",
+        "roadmap:required",
+        "security:critical"
+      ],
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+stable_release: \\\"(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\n\\s+image: \\\"opencloudeu/opencloud:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\\\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\n\\s+[a-z0-9_]+_image: \\\"[^@\\\"\\s]+:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\\\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>go) depName=(?<depName>\\S+)\\n\\s+govulncheck: \\\"(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>\\S+)\\n\\s+buildx: \\\"(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>golang-version|node-version|npm) depName=(?<depName>\\S+)\\n\\s+(?:go|node|pnpm): \\\"(?<currentValue>[^\\\"]+)\\\""
+      ]
+    }
+  ]
+}

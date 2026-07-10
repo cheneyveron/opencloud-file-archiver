@@ -1,0 +1,73 @@
+schema_version: 1
+observed_at_utc: "2026-07-10T00:00:00Z"
+
+# This file records the compatibility target, not an unverified claim. A target
+# becomes releasable only after the release workflow records a passing acceptance
+# run for the exact frontend ZIP and candidate backend image.
+opencloud:
+  repository: "opencloud-eu/opencloud"
+  channel: "stable"
+  # renovate: datasource=github-releases depName=opencloud-eu/opencloud
+  stable_release: "v7.2.1"
+  # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
+  image: "opencloudeu/opencloud:7.2.1@sha256:85a4d3ceb61626bdca9fc52c3c290692d0b07b7ba2e8315b1cd67ddedfc371a6"
+
+toolchains:
+  # Security-patched compiler/runtime used for every build and acceptance run.
+  # renovate: datasource=golang-version depName=golang
+  go: "1.25.12"
+  # renovate: datasource=docker depName=golang versioning=docker
+  go_image: "golang:1.25.12-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587"
+  # Matches the Volta version used by the current OpenCloud Web stable line.
+  # renovate: datasource=node-version depName=node
+  node: "24.16.0"
+  # renovate: datasource=docker depName=node versioning=docker
+  node_image: "node:24.16.0-bookworm@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7"
+  # The extension's packageManager field is authoritative for reproducible builds.
+  # renovate: datasource=npm depName=pnpm
+  pnpm: "11.9.0"
+  # Must match the @playwright/test version resolved in pnpm-lock.yaml.
+  # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
+  playwright_image: "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48"
+  # Browser gateway used only by the disposable acceptance environment.
+  # renovate: datasource=docker depName=caddy versioning=docker
+  caddy_image: "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d"
+  # Vulnerability scanner used for the candidate backend image.
+  # renovate: datasource=docker depName=aquasec/trivy versioning=docker
+  trivy_image: "aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
+  # renovate: datasource=go depName=golang.org/x/vuln
+  govulncheck: "v1.6.0"
+  # Buildx client and its BuildKit daemon are independently pinned.
+  # renovate: datasource=github-releases depName=docker/buildx
+  buildx: "v0.35.0"
+  # renovate: datasource=docker depName=moby/buildkit versioning=docker
+  buildkit_image: "moby/buildkit:v0.31.1@sha256:6b59b7df63a8cb9902736f9ddf7fcff8261613d3e7449b8ea8b7537fc399c03a"
+  # renovate: datasource=docker depName=tonistiigi/binfmt versioning=docker
+  binfmt_image: "tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
+  # Renovate receives a write-capable bot token, so its runtime is digest-pinned.
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate versioning=docker
+  renovate_image: "ghcr.io/renovatebot/renovate:43.257.7@sha256:14cbf4bfbc686d62da375b11bbe68833ce5567caa41cd17c477d01f02c2befd0"
+  go_module_minimum: "1.25.0"
+
+release_policy:
+  ordinary_updates: "weekly-grouped-patch-release"
+  urgent_runtime_security: "immediate-after-full-acceptance"
+  urgent_severities:
+    - "Critical"
+    - "High"
+  required_platforms:
+    - "linux/amd64"
+    - "linux/arm64"
+  frontend_asset: "file-archiver-X.Y.Z.zip"
+  frontend_root_directory: "file-archiver/"
+  checksum: "SHA256"
+  backend_image: "ghcr.io/cheneyveron/opencloud-file-archiver-service:X.Y.Z"
+
+# Values are maintained replacements approved by a human. Every lifecycle
+# finding blocks automatic release until the dependency is migrated; an empty
+# value additionally means a maintainer must choose a replacement.
+approved_replacements:
+  "github.com/bodgit/sevenzip": ""
+  "github.com/nwaples/rardecode": ""
+  "github.com/yeka/zip": ""
+  "vue3-gettext": ""

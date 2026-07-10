@@ -1400,6 +1400,9 @@ func TestCompressionDownloadJobUsesDownloadToken(t *testing.T) {
 		data, _ := io.ReadAll(res.Body)
 		t.Fatalf("download status = %d, body=%s", res.StatusCode, data)
 	}
+	if res.ContentLength <= 0 {
+		t.Fatalf("download content length = %d, want a non-empty archive", res.ContentLength)
+	}
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -1460,8 +1463,11 @@ func TestCompressionDownloadJobEnforcesOutputLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = io.Copy(io.Discard, res.Body)
+	data, _ := io.ReadAll(res.Body)
 	_ = res.Body.Close()
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("download status = %d, want %d; body=%s", res.StatusCode, http.StatusRequestEntityTooLarge, data)
+	}
 
 	done := waitJob(t, api.URL, created.ID)
 	if done.Status != statusFailed {
@@ -1469,6 +1475,55 @@ func TestCompressionDownloadJobEnforcesOutputLimit(t *testing.T) {
 	}
 	if done.Code != "OUTPUT_TOO_LARGE" {
 		t.Fatalf("job code = %q, want OUTPUT_TOO_LARGE; error=%s", done.Code, done.Error)
+	}
+}
+
+func TestCompressionDownloadReportsPlanningErrorBeforeSendingArchiveHeaders(t *testing.T) {
+	davServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "dav unavailable", http.StatusServiceUnavailable)
+	}))
+	defer davServer.Close()
+
+	svc := newTestArchiveServer(t, davServer.URL)
+	api := httptest.NewServer(svc)
+	defer api.Close()
+
+	body := `{
+		"format":"zip",
+		"sources":[{"spaceId":"space-id","path":"/source.txt","name":"source.txt","size":16}],
+		"output":{"mode":"download","fileName":"source.zip"},
+		"conflicts":"fail"
+	}`
+	res := doJSON(t, api.URL+"/api/compressions", http.MethodPost, body)
+	if res.StatusCode != http.StatusAccepted {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("create compression status = %d, body=%s", res.StatusCode, data)
+	}
+	var created publicJob
+	decodeJSON(t, res.Body, &created)
+	_ = res.Body.Close()
+
+	res, err := http.Get(api.URL + created.Output.DownloadURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusServiceUnavailable {
+		data, _ := io.ReadAll(res.Body)
+		t.Fatalf("download status = %d, want %d; body=%s", res.StatusCode, http.StatusServiceUnavailable, data)
+	}
+	if got := res.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("download error content type = %q, want application/json", got)
+	}
+	var failure map[string]string
+	decodeJSON(t, res.Body, &failure)
+	if failure["code"] != "PROPFIND_FAILED" {
+		t.Fatalf("download error code = %q, want PROPFIND_FAILED", failure["code"])
+	}
+
+	done := waitJob(t, api.URL, created.ID)
+	if done.Status != statusFailed || done.Code != "PROPFIND_FAILED" {
+		t.Fatalf("job status=%s code=%s error=%s", done.Status, done.Code, done.Error)
 	}
 }
 

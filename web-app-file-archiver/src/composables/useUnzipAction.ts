@@ -1,5 +1,4 @@
 import {
-  AppConfigObject,
   FileAction,
   FileActionOptions,
   LocationPickerModal,
@@ -7,13 +6,13 @@ import {
   useGetMatchingSpace,
   useMessages,
   useModals,
-  useRequestHeaders,
   useResourcesStore
 } from '@opencloud-eu/web-pkg'
 import { Resource } from '@opencloud-eu/web-client'
 import { computed, markRaw, unref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useAskForArchivePassword } from './useAskForArchivePassword'
+import { ArchiveServiceConfig, useArchiveService } from './useArchiveService'
 
 type ExtractionJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -27,27 +26,11 @@ type ExtractionJob = {
   totalEntries?: number
 }
 
-type ExtractionConfig = AppConfigObject & {
-  fileArchiverServiceUrl?: string
-  archiveServiceUrl?: string
-  unarchiveServiceUrl?: string
+type ExtractionConfig = ArchiveServiceConfig & {
   archivePasswordPromptMaxAttempts?: number
   archivePasswordPromptPollIntervalMs?: number
 }
 
-class ExtractionServiceError extends Error {
-  code?: string
-  status?: number
-
-  constructor(message: string, { code, status }: { code?: string; status?: number } = {}) {
-    super(message)
-    this.name = 'ExtractionServiceError'
-    this.code = code
-    this.status = status
-  }
-}
-
-const DEFAULT_SERVICE_URL = '/archive'
 const PASSWORD_REQUIRED_CODE = 'PASSWORD_REQUIRED'
 const PASSWORD_PROMPT_POLL_INTERVAL_MS = 1000
 const PASSWORD_PROMPT_MAX_ATTEMPTS = 120
@@ -65,19 +48,6 @@ const SUPPORTED_MIME_TYPES = [
 ]
 
 const SUPPORTED_EXTENSIONS = ['7z', 'gz', 'rar', 'tar', 'tar.gz', 'tgz', 'zip']
-
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, '')
-}
-
-function getServiceUrl(applicationConfig: ExtractionConfig) {
-  return trimTrailingSlash(
-    applicationConfig.fileArchiverServiceUrl ||
-      applicationConfig.archiveServiceUrl ||
-      applicationConfig.unarchiveServiceUrl ||
-      DEFAULT_SERVICE_URL
-  )
-}
 
 function getPasswordPromptPollIntervalMs(applicationConfig: ExtractionConfig) {
   return Number(
@@ -114,61 +84,15 @@ function isSupportedArchive(resource: Resource) {
   return SUPPORTED_EXTENSIONS.includes(getResourceExtension(resource))
 }
 
-function getErrorMessage(payload: unknown, fallback: string) {
-  if (payload && typeof payload === 'object' && 'error' in payload) {
-    const error = (payload as { error?: unknown }).error
-    if (typeof error === 'string' && error) {
-      return error
-    }
-  }
-
-  return fallback
-}
-
-function getErrorCode(payload: unknown) {
-  if (payload && typeof payload === 'object' && 'code' in payload) {
-    const code = (payload as { code?: unknown }).code
-    if (typeof code === 'string') {
-      return code
-    }
-  }
-
-  return undefined
-}
-
 const useCreateUnzipAction = (applicationConfig: ExtractionConfig = {}) => {
   const { $gettext } = useGettext()
   const resourcesStore = useResourcesStore()
-  const requestHeaders = useRequestHeaders()
+  const { requestJson } = useArchiveService(applicationConfig)
   const { showErrorMessage, showMessage } = useMessages()
   const { dispatchModal } = useModals()
   const { getParentFolderLink } = useFolderLink()
   const { getMatchingSpace } = useGetMatchingSpace()
   const { askForArchivePassword } = useAskForArchivePassword()
-
-  async function requestJson<T>(path: string, init: RequestInit = {}) {
-    const response = await fetch(`${getServiceUrl(applicationConfig)}${path}`, {
-      ...init,
-      headers: {
-        ...unref(requestHeaders.headers),
-        ...(init.headers || {}),
-        Accept: 'application/json'
-      }
-    })
-
-    const payload = await response.json().catch((): undefined => undefined)
-    if (!response.ok) {
-      throw new ExtractionServiceError(
-        getErrorMessage(payload, $gettext('Archive extraction failed')),
-        {
-          code: getErrorCode(payload),
-          status: response.status
-        }
-      )
-    }
-
-    return payload as T
-  }
 
   async function createExtractionJob({
     sourceSpace,

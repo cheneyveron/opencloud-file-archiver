@@ -17,7 +17,15 @@ describe('unzip action', () => {
   const space = mock<SpaceResource>({ id: 'space-id' })
 
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ id: 'job-1', status: 'queued' }, 202)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.endsWith('/healthz')) {
+          return Promise.resolve(jsonResponse({ status: 'ok' }))
+        }
+        return Promise.resolve(jsonResponse({ id: 'job-1', status: 'queued' }, 202))
+      })
+    )
   })
 
   afterEach(() => {
@@ -116,26 +124,27 @@ describe('unzip action', () => {
           const callbackFn = attrs.callbackFn as (resources: Resource[]) => void
           callbackFn([targetFolder])
 
-          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-          expect(fetchMock).toHaveBeenNthCalledWith(
-            1,
-            '/archive/api/extractions',
-            expect.objectContaining({
-              method: 'POST',
-              body: JSON.stringify({
-                source: {
-                  spaceId: 'space-id',
-                  path: '/archive.zip',
-                  name: 'archive.zip',
-                  mimeType: 'application/zip',
-                  size: 2_000_000_000
-                },
-                destination: {
-                  spaceId: 'target-space-id',
-                  path: '/target'
-                }
+          await vi.waitFor(() =>
+            expect(fetchMock).toHaveBeenNthCalledWith(
+              2,
+              '/archive/api/extractions',
+              expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({
+                  source: {
+                    spaceId: 'space-id',
+                    path: '/archive.zip',
+                    name: 'archive.zip',
+                    mimeType: 'application/zip',
+                    size: 2_000_000_000
+                  },
+                  destination: {
+                    spaceId: 'target-space-id',
+                    path: '/target'
+                  }
+                })
               })
-            })
+            )
           )
           await vi.waitFor(() => {
             const { showMessage } = useMessages()
@@ -175,7 +184,7 @@ describe('unzip action', () => {
 
           await vi.waitFor(() =>
             expect(fetchMock).toHaveBeenNthCalledWith(
-              1,
+              2,
               'https://extract.example.test/archive/api/extractions',
               expect.anything()
             )
@@ -186,9 +195,14 @@ describe('unzip action', () => {
 
     it('shows an error message if job creation fails', async () => {
       const fetchMock = vi.mocked(fetch)
-      fetchMock.mockResolvedValueOnce(
-        jsonResponse({ error: 'unsupported archive', code: 'UNSUPPORTED_ARCHIVE' }, 400)
-      )
+      fetchMock.mockImplementation((url: string | URL | Request) => {
+        if (String(url).endsWith('/healthz')) {
+          return Promise.resolve(jsonResponse({ status: 'ok' }))
+        }
+        return Promise.resolve(
+          jsonResponse({ error: 'unsupported archive', code: 'UNSUPPORTED_ARCHIVE' }, 400)
+        )
+      })
 
       await getWrapper({
         setup: async (action) => {
@@ -219,9 +233,48 @@ describe('unzip action', () => {
       }).setupPromise
     })
 
+    it('shows backend installation guidance when the backend is unreachable', async () => {
+      const fetchMock = vi.mocked(fetch)
+      fetchMock.mockRejectedValue(new TypeError('network failed'))
+
+      await getWrapper({
+        setup: async (action) => {
+          const resource = mock<Resource>({
+            id: 'archive-id',
+            name: 'archive.zip',
+            path: '/archive.zip',
+            storageId: 'space-id',
+            mimeType: 'application/zip'
+          })
+          const targetFolder = mock<Resource>({
+            id: 'target-folder',
+            path: '/target',
+            storageId: 'target-space-id'
+          })
+
+          await unref(action).handler({ space, resources: [resource] })
+          const { dispatchModal } = useModals()
+          const callbackFn = vi.mocked(dispatchModal).mock.calls[0][0].customComponentAttrs()
+            .callbackFn as (resources: Resource[]) => void
+          callbackFn([targetFolder])
+
+          await vi.waitFor(() => {
+            const { showErrorMessage } = useMessages()
+            const error = vi.mocked(showErrorMessage).mock.calls[0][0].errors[0] as Error
+            expect(error.message).toContain('The File Archiver backend is not installed')
+            expect(error.message).toContain(
+              'Contact your administrator or follow the backend installation guide.'
+            )
+          })
+          expect(fetchMock).toHaveBeenCalledTimes(1)
+        }
+      }).setupPromise
+    })
+
     it('prompts for a password and retries when the backend detects encryption', async () => {
       const fetchMock = vi.mocked(fetch)
       fetchMock
+        .mockResolvedValueOnce(jsonResponse({ status: 'ok' }))
         .mockResolvedValueOnce(jsonResponse({ id: 'job-1', status: 'queued' }, 202))
         .mockResolvedValueOnce(
           jsonResponse({ id: 'job-1', status: 'failed', code: 'PASSWORD_REQUIRED' }, 200)
@@ -249,9 +302,9 @@ describe('unzip action', () => {
             .callbackFn as (resources: Resource[]) => void
           callbackFn([targetFolder])
 
-          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
           expect(askForArchivePasswordMock).toHaveBeenCalledTimes(1)
-          expect(JSON.parse(fetchMock.mock.calls[2][1].body as string).password).toBe(
+          expect(JSON.parse(fetchMock.mock.calls[3][1].body as string).password).toBe(
             'archive-password'
           )
         }

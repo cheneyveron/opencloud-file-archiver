@@ -15,11 +15,15 @@ pnpm install
 pnpm build
 ```
 
-The service image is published on every `main` branch push:
+The Web extension requires the companion backend service. Download the matching frontend ZIP and
+pin the backend image from the same numbered GitHub Release; `main` is not a release channel:
 
 ```sh
-ghcr.io/cheneyveron/opencloud-file-archiver-service:main
+FILE_ARCHIVER_VERSION=X.Y.Z docker compose -f docker-compose.file-archiver.example.yml up -d
 ```
+
+See [`INSTALL.md`](../INSTALL.md) for checksum verification, the required ZIP layout, configuration,
+smoke testing, upgrade, and rollback instructions.
 
 OpenCloud Web discovers apps under `WEB_ASSET_APPS_PATH` by reading each app's
 `manifest.json` and injecting it into `external_apps`. The example

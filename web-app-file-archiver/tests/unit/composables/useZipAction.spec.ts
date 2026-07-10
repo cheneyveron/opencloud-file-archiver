@@ -38,14 +38,17 @@ describe('zip action', () => {
   const space = mock<SpaceResource>({ id: 'space-id' })
 
   beforeEach(() => {
-    fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ id: 'job-1', status: 'queued' })
+    fetchMock = vi.fn((url: string) => {
+      if (url.endsWith('/healthz')) {
+        return Promise.resolve(jsonResponse({ status: 'ok' }))
+      }
+      return Promise.resolve(jsonResponse({ id: 'job-1', status: 'queued' }))
     })
     vi.stubGlobal('fetch', fetchMock)
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -214,7 +217,7 @@ describe('zip action', () => {
           ) => void
           callbackFn([targetFolder], { fileName: 'custom.zip' })
 
-          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
           expect(askForArchiveFileNameMock).not.toHaveBeenCalled()
           expect(fetchMock).toHaveBeenCalledWith(
             '/archive/api/compressions',
@@ -282,9 +285,9 @@ describe('zip action', () => {
           await vi.waitFor(() =>
             expect(askForArchiveFileNameMock).toHaveBeenCalledWith('report.zip')
           )
-          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
           expect(
-            JSON.parse(fetchMock.mock.calls[0][1].body as string).output.destination.fileName
+            JSON.parse(fetchMock.mock.calls[1][1].body as string).output.destination.fileName
           ).toBe('fallback-name.zip')
         }
       }).setupPromise
@@ -375,9 +378,11 @@ describe('zip action', () => {
     })
 
     it('shows an error message if archive creation fails', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        json: () => Promise.resolve({ error: 'failed to create archive' })
+      fetchMock.mockImplementation((url: string) => {
+        if (url.endsWith('/healthz')) {
+          return Promise.resolve(jsonResponse({ status: 'ok' }))
+        }
+        return Promise.resolve(jsonResponse({ error: 'failed to create archive' }, 500))
       })
 
       await getWrapper({
@@ -408,6 +413,43 @@ describe('zip action', () => {
       }).setupPromise
     })
 
+    it('shows backend installation guidance when the backend is missing', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ error: 'not found' }, 404))
+
+      await getWrapper({
+        setup: async (action) => {
+          const resource = mock<Resource>({
+            id: 'folder-id',
+            name: 'folder',
+            path: '/folder',
+            storageId: 'space-id',
+            isFolder: true
+          })
+          const targetFolder = mock<Resource>({
+            id: 'target-folder',
+            path: '/target',
+            storageId: 'target-space-id'
+          })
+          await unref(action).handler({ space, resources: [resource] })
+          const { dispatchModal } = useModals()
+          const callbackFn = vi.mocked(dispatchModal).mock.calls[0][0].customComponentAttrs()
+            .callbackFn as (resources: Resource[]) => void
+          callbackFn([targetFolder])
+
+          await vi.waitFor(() => {
+            const { showErrorMessage } = useMessages()
+            const error = vi.mocked(showErrorMessage).mock.calls[0][0].errors[0] as Error
+            expect(error.message).toContain('The File Archiver backend is not installed')
+            expect(error.message).toContain(
+              'Contact your administrator or follow the backend installation guide.'
+            )
+          })
+          expect(fetchMock).toHaveBeenCalledTimes(1)
+          expect(fetchMock).toHaveBeenCalledWith('/archive/healthz', expect.anything())
+        }
+      }).setupPromise
+    })
+
     it('creates an encrypted zip job using the entered password', async () => {
       await getWrapper({
         actionFactory: useEncryptedZipAction,
@@ -433,7 +475,7 @@ describe('zip action', () => {
 
           expect(askForZipPasswordMock).toHaveBeenCalledTimes(1)
           await vi.waitFor(() => {
-            expect(JSON.parse(fetchMock.mock.calls[0][1].body).encryption).toEqual({
+            expect(JSON.parse(fetchMock.mock.calls[1][1].body).encryption).toEqual({
               method: 'zip-aes256',
               password: 'zip-password'
             })
@@ -461,8 +503,10 @@ describe('zip action', () => {
       }).setupPromise
     })
 
-    it('creates a direct download job and opens its download URL', async () => {
-      const assignMock = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined)
+    it('creates a direct download job without navigating away from OpenCloud', async () => {
+      const clickMock = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(() => undefined)
 
       await getWrapper({
         actionFactory: useDownloadZipAction,
@@ -476,15 +520,18 @@ describe('zip action', () => {
 
           await unref(action).handler({ space, resources: [resource] })
 
-          expect(JSON.parse(fetchMock.mock.calls[0][1].body).output).toEqual({
+          expect(JSON.parse(fetchMock.mock.calls[1][1].body).output).toEqual({
             mode: 'download',
             fileName: 'report.zip'
           })
-          expect(assignMock).toHaveBeenCalledWith('/archive/api/jobs/job-1/download')
+          expect(clickMock).toHaveBeenCalledTimes(1)
+          const link = clickMock.mock.instances[0] as HTMLAnchorElement
+          expect(link.getAttribute('href')).toBe('/archive/api/jobs/job-1/download')
+          expect(link.download).toBe('report.zip')
+          expect(link.rel).toBe('noopener')
+          expect(link.isConnected).toBe(false)
         }
       }).setupPromise
-
-      assignMock.mockRestore()
     })
 
     it('creates tar.gz archives through the backend', async () => {
@@ -514,13 +561,20 @@ describe('zip action', () => {
           ) => void
           callbackFn([targetFolder], { fileName: 'folder.tar.gz' })
 
-          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-          expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).format).toBe('tar.gz')
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+          expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).format).toBe('tar.gz')
         }
       }).setupPromise
     })
   })
 })
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  })
+}
 
 function getWrapper({
   actionFactory = useZipAction,

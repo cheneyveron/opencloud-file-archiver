@@ -1,0 +1,69 @@
+services:
+  opencloud:
+    image: ${OPENCLOUD_IMAGE:?set OPENCLOUD_IMAGE to an exact stable image}
+    entrypoint: /bin/sh
+    command: ["-c", "opencloud init || true; exec opencloud server"]
+    environment:
+      OC_URL: ${E2E_BASE_URL:?set E2E_BASE_URL}
+      OC_INSECURE: "true"
+      OC_LOG_LEVEL: error
+      IDM_ADMIN_PASSWORD: ${E2E_ADMIN_PASSWORD:?set E2E_ADMIN_PASSWORD}
+      PROXY_ENABLE_BASIC_AUTH: "true"
+      PROXY_HTTP_ADDR: 0.0.0.0:9200
+      WEB_ASSET_APPS_PATH: /web/apps
+      WEB_UI_CONFIG_FILE: /web/config.json
+    volumes:
+      - opencloud-config:/etc/opencloud
+      - ${E2E_WEB_CONFIG:?set E2E_WEB_CONFIG}:/web/config.json:ro
+      - ${E2E_APPS_CONFIG:?set E2E_APPS_CONFIG}:/etc/opencloud/apps.yaml:ro
+      - ${E2E_APP_DIR:?set E2E_APP_DIR}:/web/apps/file-archiver:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+
+  file-archiver:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE to the candidate image}
+    environment:
+      FILE_ARCHIVER_OPENCLOUD_URL: http://gateway:8080
+      FILE_ARCHIVER_TMP_DIR: /tmp/opencloud-file-archiver
+      FILE_ARCHIVER_MAX_CONCURRENT_JOBS: "2"
+    tmpfs:
+      - /tmp/opencloud-file-archiver:size=1G,mode=0770,uid=100,gid=101
+    depends_on:
+      - opencloud
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  gateway:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE from compatibility.lock.yaml}
+    environment:
+      E2E_PUBLIC_HOST: opencloud.test
+      E2E_PORT: ${E2E_PORT:?set E2E_PORT}
+    ports:
+      - 127.0.0.1:${E2E_PORT:?set E2E_PORT}:${E2E_PORT:?set E2E_PORT}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - opencloud
+      - file-archiver
+    networks:
+      default:
+        aliases:
+          - opencloud.test
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+
+volumes:
+  opencloud-config:
+  caddy-data:
+  caddy-config:

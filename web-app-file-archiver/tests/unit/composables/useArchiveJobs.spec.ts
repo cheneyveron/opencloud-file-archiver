@@ -6,6 +6,10 @@ vi.mock('@opencloud-eu/web-pkg', () => ({
   useRequestHeaders: () => ({ headers: { Authorization: 'Bearer test-token' } })
 }))
 
+vi.mock('vue3-gettext', () => ({
+  useGettext: () => ({ $gettext: (value: string) => value })
+}))
+
 describe('archive jobs', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -20,6 +24,9 @@ describe('archive jobs', () => {
     }
     let serverJobs = [job]
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === '/archive/healthz') {
+        return Promise.resolve(jsonResponse({ status: 'ok' }))
+      }
       if (url === '/archive/api/jobs' && !init?.method) {
         return Promise.resolve(jsonResponse({ jobs: serverJobs }))
       }
@@ -49,6 +56,19 @@ describe('archive jobs', () => {
       })
     )
     expect(unref(jobs)).toEqual([])
+  })
+
+  it('reports a missing backend explicitly', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ error: 'not found' }, 404))
+    )
+
+    const { refreshJobs } = useArchiveJobs()
+
+    await expect(refreshJobs()).rejects.toThrow(
+      'The File Archiver backend is not installed, is unreachable, or returned an incompatible response. Contact your administrator or follow the backend installation guide.'
+    )
   })
 })
 
