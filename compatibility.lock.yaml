@@ -31,7 +31,7 @@ toolchains:
   playwright_image: "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48"
   # Browser gateway used only by the disposable acceptance environment.
   # renovate: datasource=docker depName=caddy versioning=docker
-  caddy_image: "caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d"
+  caddy_image: "caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
   # Vulnerability scanner used for the candidate backend image.
   # renovate: datasource=docker depName=aquasec/trivy versioning=docker
   trivy_image: "aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
