@@ -55,6 +55,11 @@ ruleset's native code-scanning gate after the first successful scan on `main`; r
 results and block Medium-or-higher security alerts. Keep the two named CodeQL matrix checks required
 as a separate fail-closed guard against a skipped or failed analysis upload.
 
+All actions in that workflow are constrained by the default-branch review policy to explicitly
+approved commit SHAs. Updating one is intentionally a two-PR operation: first audit and approve the
+new upstream commit in `workflow-policy.py`, merge that policy-only change, then update the workflow
+pin. This prevents a workflow PR from approving the action code it is about to execute.
+
 ## Native Dependabot security pull requests
 
 Enable **Dependency graph**, **Dependabot alerts**, **Dependabot security updates**, and repository

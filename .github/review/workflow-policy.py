@@ -9,15 +9,51 @@ SECRET_EXPRESSION = re.compile(r"\$\{\{.*?\bsecrets\b.*?\}\}", re.IGNORECASE | r
 NETWORK_TO_SHELL = re.compile(r"\b(?:curl|wget)\b[^|]{0,2000}\|\s*(?:ba)?sh\b", re.IGNORECASE | re.DOTALL)
 SOURCE_SECURITY_WORKFLOW = ".github/workflows/source-security.yml"
 PINNED_ACTION = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)?@[a-f0-9]{40}$", re.IGNORECASE)
-ALLOWED_SOURCE_SECURITY_ACTIONS = {
-    "actions/checkout",
-    "github/codeql-action/autobuild",
-    "github/codeql-action/init",
-    "github/codeql-action/analyze",
+APPROVED_SOURCE_SECURITY_ACTIONS = {
+    "actions/checkout": "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+    "github/codeql-action/autobuild": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
+    "github/codeql-action/init": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
+    "github/codeql-action/analyze": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
 }
 
 
 MISSING = object()
+
+
+class GitHubActionsLoader(yaml.SafeLoader):
+    """Parse Actions YAML like YAML 1.2 and reject duplicate mapping keys."""
+
+
+GitHubActionsLoader.yaml_implicit_resolvers = {
+    key: [resolver for resolver in resolvers if resolver[0] != "tag:yaml.org,2002:bool"]
+    for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+GitHubActionsLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool",
+    re.compile(r"^(?:true|false)$", re.IGNORECASE),
+    list("tTfF"),
+)
+
+
+def unique_mapping(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+GitHubActionsLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    unique_mapping,
+)
 
 
 def event_config(document, name):
@@ -97,7 +133,8 @@ def constrained_codeql_upload(file_name, document):
             return False
         if not isinstance(step["uses"], str) or not PINNED_ACTION.fullmatch(step["uses"]):
             return False
-        if step["uses"].split("@", 1)[0].lower() not in ALLOWED_SOURCE_SECURITY_ACTIONS:
+        action, revision = step["uses"].lower().split("@", 1)
+        if APPROVED_SOURCE_SECURITY_ACTIONS.get(action) != revision:
             return False
 
     checkout, init, autobuild, analyze = steps
@@ -135,7 +172,7 @@ def constrained_codeql_upload(file_name, document):
 def analyze(file_name, source):
     findings = []
     try:
-        document = yaml.safe_load(source)
+        document = yaml.load(source, Loader=GitHubActionsLoader)
     except yaml.YAMLError as error:
         return [f"{file_name}: workflow YAML is invalid: {error}"]
     if not isinstance(document, dict):
