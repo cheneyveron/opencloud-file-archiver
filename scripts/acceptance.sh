@@ -390,6 +390,10 @@ jq -n --arg url "$E2E_BASE_URL" '{
   },
   apps: ["files", "text-editor", "pdf-viewer", "search", "external", "admin-settings"]
 }' >"$E2E_WEB_CONFIG"
+# The OpenCloud container runs as its own unprivileged UID. The generated Web
+# config contains no secret, so make it readable across the bind mount while
+# keeping compose.env and its admin password protected by the process umask.
+chmod 0644 "$E2E_WEB_CONFIG"
 
 log "Start one disposable OpenCloud stable environment"
 COMPOSE_STARTED=1
