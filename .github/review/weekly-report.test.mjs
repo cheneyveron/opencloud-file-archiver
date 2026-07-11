@@ -6,13 +6,17 @@ import {
   deprecatedPnpmPackages,
   directGoModuleNames,
   isAbandonedRenovatePullRequest,
+  isAutomatedDependencyPullRequest,
   isPendingReleasePullRequest,
+  isSameMajorStableVersionAtLeast,
   lockedDirectPnpmVersions,
+  openCloudWebCompatibilityFindings,
   pnpmUpdateSummary,
   requiredCheckSummary,
   replacementLeadLabel,
   safeReportText,
   suggestedReplacementNames,
+  webMajorAllowanceChangeFindings,
 } from '../maintenance/weekly-report-lib.mjs'
 
 test('pnpm outdated uses wanted when current is absent and omits current packages', () => {
@@ -33,6 +37,78 @@ test('pnpm outdated reports incomplete registry records instead of inventing ver
     failures: ['broken: pnpm omitted the locked or latest version'],
     updates: [],
   })
+})
+
+test('Node compatibility accepts only stable, non-older versions in the upstream major', () => {
+  assert.equal(isSameMajorStableVersionAtLeast('24.16.0', '24.16.0'), true)
+  assert.equal(isSameMajorStableVersionAtLeast('24.16.0', '24.18.0'), true)
+  assert.equal(isSameMajorStableVersionAtLeast('24.9.0', '24.10.0'), true)
+  assert.equal(isSameMajorStableVersionAtLeast('24.16.1', '24.16.0'), false)
+  assert.equal(isSameMajorStableVersionAtLeast('24.16.0', '25.0.0'), false)
+  assert.equal(isSameMajorStableVersionAtLeast('24.16.0', '24.18.0-rc.1'), false)
+  assert.equal(isSameMajorStableVersionAtLeast('24.16.0', 'v24.18.0'), false)
+  assert.equal(isSameMajorStableVersionAtLeast('24.016.0', '24.18.0'), false)
+  assert.equal(isSameMajorStableVersionAtLeast('1.9007199254740993.0', '1.9007199254740992.999'), false)
+  assert.equal(isSameMajorStableVersionAtLeast('lookup-failed', '24.18.0'), false)
+})
+
+test('embedded Web compatibility covers the approved major, package identity, Node, and pnpm', () => {
+  const compatible = {
+    approvedWebMajor: '7',
+    selectedNode: '24.18.0',
+    selectedPnpm: '11.10.0',
+    upstreamNode: '24.16.0',
+    upstreamPackageVersion: '7.1.3',
+    upstreamPnpm: '11.5.2',
+    upstreamWeb: 'v7.1.3',
+  }
+  assert.deepEqual(openCloudWebCompatibilityFindings(compatible), [])
+  assert.match(openCloudWebCompatibilityFindings({
+    ...compatible,
+    upstreamWeb: 'v8.0.0',
+    upstreamPackageVersion: '8.0.0',
+  }).join('\n'), /outside approved major 7/)
+  assert.match(openCloudWebCompatibilityFindings({
+    ...compatible,
+    upstreamPackageVersion: '7.1.2',
+    selectedPnpm: '10.9.0',
+  }).join('\n'), /does not match v7\.1\.3[\s\S]*toolchains\.pnpm/)
+})
+
+test('embedded Web major allowances are isolated human roadmap decisions', () => {
+  assert.deepEqual(webMajorAllowanceChangeFindings({
+    automatedAuthor: false,
+    currentMajor: '7',
+    labels: [],
+    proposedMajor: '7',
+  }), [])
+  const automated = webMajorAllowanceChangeFindings({
+    automatedAuthor: true,
+    currentMajor: '7',
+    labels: ['roadmap:required', 'release:weekly'],
+    proposedMajor: '8',
+  }).join('\n')
+  assert.match(automated, /Automated PRs cannot change/)
+  assert.match(automated, /cannot use an automatic release route/)
+  assert.deepEqual(webMajorAllowanceChangeFindings({
+    automatedAuthor: false,
+    currentMajor: '7',
+    labels: ['roadmap:required'],
+    proposedMajor: '8',
+  }), [])
+})
+
+test('PAT-authored Renovate branches retain their automated dependency identity', () => {
+  assert.equal(isAutomatedDependencyPullRequest({
+    authorLogin: 'cheneyveron',
+    authorType: 'User',
+    headRef: 'renovate/runtime-build-toolchain-compatibility',
+  }), true)
+  assert.equal(isAutomatedDependencyPullRequest({
+    authorLogin: 'cheneyveron',
+    authorType: 'User',
+    headRef: 'fix/manual-compatibility',
+  }), false)
 })
 
 test('pnpm lockfile deprecations include scoped and unscoped transitive packages', () => {

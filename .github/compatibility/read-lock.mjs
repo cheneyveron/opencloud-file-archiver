@@ -5,7 +5,9 @@ const source = readFileSync(lockPath, 'utf8')
 if (source.includes('\t')) throw new Error(`${lockPath} must not contain tabs`)
 
 const required = new Map([
+  ['opencloud.repository', null],
   ['opencloud.channel', null],
+  ['opencloud.embedded_web_major', null],
   ['opencloud.stable_release', null],
   ['opencloud.image', null],
   ['toolchains.go', null],
@@ -65,11 +67,17 @@ for (const [key, value] of required) {
 }
 
 const value = (key) => required.get(key)
-const semver = /^[0-9]+\.[0-9]+\.[0-9]+$/
+const semver = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/
 const dockerDigest = /^[a-z0-9][a-z0-9./-]*:[A-Za-z0-9][A-Za-z0-9._-]*@sha256:[a-f0-9]{64}$/
 
+if (value('opencloud.repository') !== 'opencloud-eu/opencloud') {
+  throw new Error('opencloud.repository must be opencloud-eu/opencloud')
+}
 if (value('opencloud.channel') !== 'stable') throw new Error('opencloud.channel must be stable')
-if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(value('opencloud.stable_release'))) {
+if (!/^(?:0|[1-9][0-9]*)$/.test(value('opencloud.embedded_web_major'))) {
+  throw new Error('opencloud.embedded_web_major must be a canonical non-negative integer')
+}
+if (!/^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(value('opencloud.stable_release'))) {
   throw new Error('opencloud.stable_release must be strict vX.Y.Z')
 }
 for (const key of [...required.keys()].filter((item) => item.endsWith('_image') || item === 'opencloud.image')) {
@@ -79,7 +87,9 @@ for (const key of ['toolchains.go', 'toolchains.node', 'toolchains.pnpm', 'toolc
   if (!semver.test(value(key))) throw new Error(`${key} must be strict X.Y.Z`)
 }
 for (const key of ['toolchains.govulncheck', 'toolchains.buildx']) {
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(value(key))) throw new Error(`${key} must be strict vX.Y.Z`)
+  if (!/^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(value(key))) {
+    throw new Error(`${key} must be strict vX.Y.Z`)
+  }
 }
 
 const stableVersion = value('opencloud.stable_release').slice(1)
@@ -113,6 +123,7 @@ if (!playwrightVersion || !value('toolchains.playwright_image').includes(`:v${pl
 
 const output = {
   opencloud_image: value('opencloud.image'),
+  opencloud_web_major: value('opencloud.embedded_web_major'),
   go_version: value('toolchains.go'),
   go_image: value('toolchains.go_image'),
   node_version: value('toolchains.node'),

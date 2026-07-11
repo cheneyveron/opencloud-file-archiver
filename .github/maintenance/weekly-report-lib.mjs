@@ -34,6 +34,79 @@ export function pnpmUpdateSummary(outdatedInfo) {
   return { failures, updates }
 }
 
+function stableVersionTriplet(value) {
+  const match = String(value || '').match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
+  return match ? match.slice(1).map(BigInt) : null
+}
+
+export function isSameMajorStableVersionAtLeast(baselineVersion, selectedVersion) {
+  const baseline = stableVersionTriplet(baselineVersion)
+  const selected = stableVersionTriplet(selectedVersion)
+  if (!baseline || !selected || selected[0] !== baseline[0]) return false
+
+  for (let index = 1; index < baseline.length; index += 1) {
+    if (selected[index] !== baseline[index]) return selected[index] > baseline[index]
+  }
+  return true
+}
+
+export function openCloudWebCompatibilityFindings({
+  approvedWebMajor,
+  selectedNode,
+  selectedPnpm,
+  upstreamNode,
+  upstreamPackageVersion,
+  upstreamPnpm,
+  upstreamWeb,
+}) {
+  const findings = []
+  const web = String(upstreamWeb || '').match(/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
+  if (!web) {
+    findings.push(`OpenCloud embedded Web ${upstreamWeb || 'missing'} is not a stable vX.Y.Z release`)
+  } else if (!/^(?:0|[1-9]\d*)$/.test(String(approvedWebMajor || '')) ||
+             web[1] !== String(approvedWebMajor)) {
+    findings.push(`OpenCloud embedded Web major ${web[1]} is outside approved major ${approvedWebMajor || 'missing'}; a roadmap decision is required`)
+  }
+  if (web && upstreamPackageVersion !== upstreamWeb.slice(1)) {
+    findings.push(`Embedded OpenCloud Web package version ${upstreamPackageVersion || 'missing'} does not match ${upstreamWeb}`)
+  }
+
+  if (!isSameMajorStableVersionAtLeast(upstreamNode, selectedNode)) {
+    findings.push(`Embedded OpenCloud Web uses Volta Node baseline ${upstreamNode || 'missing'}; toolchains.node must be no older in the same major, but is ${selectedNode || 'missing'}`)
+  }
+  if (!isSameMajorStableVersionAtLeast(upstreamPnpm, selectedPnpm)) {
+    findings.push(`Embedded OpenCloud Web uses pnpm baseline ${upstreamPnpm || 'missing'}; toolchains.pnpm must be no older in the same major, but is ${selectedPnpm || 'missing'}`)
+  }
+  return findings
+}
+
+export function webMajorAllowanceChangeFindings({
+  automatedAuthor,
+  currentMajor,
+  labels = [],
+  proposedMajor,
+}) {
+  if (currentMajor === proposedMajor) return []
+  const labelSet = new Set(labels)
+  const findings = []
+  if (automatedAuthor) {
+    findings.push('Automated PRs cannot change opencloud.embedded_web_major; use an independent human roadmap decision')
+  }
+  if (!labelSet.has('roadmap:required')) {
+    findings.push('Changing opencloud.embedded_web_major requires a roadmap:required decision')
+  }
+  if (['release:weekly', 'security:high', 'security:critical'].some((label) => labelSet.has(label))) {
+    findings.push('An embedded Web major allowance change cannot use an automatic release route')
+  }
+  return findings
+}
+
+export function isAutomatedDependencyPullRequest({ authorLogin, authorType, headRef }) {
+  return authorType === 'Bot' ||
+    /\[bot\]$/.test(String(authorLogin || '')) ||
+    /^(?:renovate|dependabot)\//.test(String(headRef || ''))
+}
+
 export function deprecatedPnpmPackages(lockfile) {
   const findings = []
   let inPackages = false

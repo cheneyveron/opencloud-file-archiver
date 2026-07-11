@@ -3,31 +3,40 @@ import { execFileSync } from 'node:child_process'
 
 let event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
 
-const refreshNormalizedDependabotEvent = async () => {
+const refreshLivePullRequestEvent = async () => {
   const original = event.pull_request
-  if (original?.user?.login !== 'dependabot[bot]') return
+  if (!original) return
 
   const repository = process.env.GITHUB_REPOSITORY
   const token = process.env.GITHUB_TOKEN
-  if (!repository || !token) throw new Error('GITHUB_REPOSITORY and GITHUB_TOKEN are required to verify a Dependabot PR')
-  const deadline = Date.now() + 5 * 60 * 1000
+  if (!repository || !token) throw new Error('GITHUB_REPOSITORY and GITHUB_TOKEN are required to verify a pull request')
+  const dependabot = original?.user?.login === 'dependabot[bot]'
+  const deadline = Date.now() + (dependabot ? 5 * 60 * 1000 : 1)
   const endpoint = `${process.env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repository}/pulls/${original.number}`
 
-  while (Date.now() < deadline) {
+  do {
     const response = await fetch(endpoint, {
+      signal: AbortSignal.timeout(60_000),
       headers: {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${token}`,
         'X-GitHub-Api-Version': '2026-03-10'
       }
     })
-    if (!response.ok) throw new Error(`Could not refresh Dependabot PR #${original.number}: GitHub returned ${response.status}`)
+    if (!response.ok) throw new Error(`Could not refresh PR #${original.number}: GitHub returned ${response.status}`)
     const live = await response.json()
-    if (live?.user?.login !== 'dependabot[bot]' || live?.head?.repo?.full_name !== repository || live?.base?.repo?.full_name !== repository) {
-      throw new Error('Live Dependabot PR identity or repository changed during policy review')
+    if (!live?.head?.repo?.full_name || live?.base?.repo?.full_name !== repository) {
+      throw new Error('Live PR head is missing or its base is not the reviewed repository')
     }
     if (live?.head?.sha !== original?.head?.sha) {
-      throw new Error('Dependabot PR head changed during policy review; the newer synchronize run must decide')
+      throw new Error('PR head changed during policy review; the newer synchronize run must decide')
+    }
+    if (!dependabot) {
+      event = { ...event, pull_request: live }
+      return
+    }
+    if (live?.user?.login !== 'dependabot[bot]') {
+      throw new Error('Live Dependabot PR identity changed during policy review')
     }
     const labels = new Set((live.labels || []).map(({ name }) => name))
     const normalizedHead = String(live.body || '').match(/^Normalized head SHA:\s*([a-f0-9]{40})\s*$/mi)?.[1]
@@ -37,11 +46,11 @@ const refreshNormalizedDependabotEvent = async () => {
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 5_000))
-  }
+  } while (Date.now() < deadline)
   throw new Error('Timed out waiting for the trusted Dependabot normalizer')
 }
 
-await refreshNormalizedDependabotEvent()
+await refreshLivePullRequestEvent()
 const body = event.pull_request?.body || ''
 const labels = new Set((event.pull_request?.labels || []).map(({ name }) => name))
 const base = process.env.BASE_SHA
@@ -65,6 +74,95 @@ const basePolicyFile = (file) => {
 }
 const scopes = JSON.parse(basePolicyFile('.github/review/roadmap-scopes.json'))
 const roadmap = basePolicyFile('ROADMAP.md')
+
+const githubRaw = async (repository, path, ref) => {
+  const token = process.env.GITHUB_TOKEN
+  if (!token) throw new Error('GITHUB_TOKEN is required for upstream compatibility review')
+  const endpoint = `${process.env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repository}/contents/${path}?ref=${encodeURIComponent(ref)}`
+  const response = await fetch(endpoint, {
+    signal: AbortSignal.timeout(60_000),
+    headers: {
+      Accept: 'application/vnd.github.raw+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2026-03-10'
+    }
+  })
+  if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${repository}/${path} at ${ref}`)
+  return response.text()
+}
+
+const lockScalar = (source, key) => String(source).match(new RegExp(`^  ${key}: "([^"]+)"$`, 'm'))?.[1] || ''
+
+const reviewProposedCompatibility = async () => {
+  if (!changedFiles.includes('compatibility.lock.yaml')) return
+
+  try {
+    const validator = basePolicyFile('.github/compatibility/read-lock.mjs')
+    execFileSync(process.execPath, ['--input-type=module', '--eval', validator], {
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024
+    })
+  } catch (error) {
+    errors.push(`Proposed compatibility lock is invalid: ${String(error.stderr || error.message || error).trim()}`)
+    return
+  }
+
+  const proposed = git('show', `${head}:compatibility.lock.yaml`)
+  const previous = basePolicyFile('compatibility.lock.yaml')
+  const librarySource = basePolicyFile('.github/maintenance/weekly-report-lib.mjs')
+  const library = await import(`data:text/javascript;base64,${Buffer.from(librarySource).toString('base64')}`)
+  const approvedWebMajor = lockScalar(proposed, 'embedded_web_major')
+  errors.push(...library.webMajorAllowanceChangeFindings({
+    automatedAuthor: library.isAutomatedDependencyPullRequest({
+      authorLogin: event.pull_request?.user?.login,
+      authorType: event.pull_request?.user?.type,
+      headRef: event.pull_request?.head?.ref,
+    }),
+    currentMajor: lockScalar(previous, 'embedded_web_major'),
+    labels,
+    proposedMajor: approvedWebMajor,
+  }).map((finding) => `${finding}.`))
+
+  const upstreamRepository = lockScalar(proposed, 'repository')
+  const stableRelease = lockScalar(proposed, 'stable_release')
+  if (upstreamRepository !== 'opencloud-eu/opencloud' ||
+      !/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(stableRelease)) {
+    errors.push('The proposed OpenCloud repository or stable release is not a trusted strict target.')
+    return
+  }
+
+  try {
+    const makefile = await githubRaw(upstreamRepository, 'services/web/Makefile', stableRelease)
+    const versions = [...makefile.matchAll(/^WEB_ASSETS_VERSION\s*=\s*(\S+)\s*$/gm)]
+    if (versions.length !== 1) {
+      errors.push('The proposed OpenCloud target must declare exactly one WEB_ASSETS_VERSION.')
+      return
+    }
+    const upstreamWeb = versions[0][1]
+    if (!/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(upstreamWeb)) {
+      errors.push(`The proposed OpenCloud target embeds non-stable Web version ${upstreamWeb}.`)
+      return
+    }
+
+    const packageJson = JSON.parse(await githubRaw('opencloud-eu/web', 'package.json', upstreamWeb))
+    const pnpm = String(packageJson?.packageManager || '')
+      .match(/^pnpm@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/)?.[1] || ''
+    const findings = library.openCloudWebCompatibilityFindings({
+      approvedWebMajor,
+      selectedNode: lockScalar(proposed, 'node'),
+      selectedPnpm: lockScalar(proposed, 'pnpm'),
+      upstreamNode: packageJson?.volta?.node || '',
+      upstreamPackageVersion: packageJson?.version || '',
+      upstreamPnpm: pnpm,
+      upstreamWeb,
+    })
+    errors.push(...findings.map((finding) => `OpenCloud compatibility: ${finding}.`))
+  } catch (error) {
+    errors.push(`Could not verify the proposed OpenCloud compatibility target: ${error.message || error}`)
+  }
+}
+
+await reviewProposedCompatibility()
 
 const roadmapIds = [...new Set(body.match(/RM-\d{3}/g) || [])]
 if (roadmapIds.length === 0) {
@@ -160,7 +258,6 @@ if (event.pull_request?.draft) {
   warnings.push('Draft PR: checks are informative until it is marked ready for review.')
 }
 
-const summary = process.env.GITHUB_STEP_SUMMARY
 const report = [
   '# Automated PR review',
   '',
@@ -171,11 +268,6 @@ const report = [
   ...(errors.length ? ['## Blocking findings', ...errors.map((error) => `- ${error}`), ''] : ['No blocking policy findings.', '']),
   ...(warnings.length ? ['## Notes', ...warnings.map((warning) => `- ${warning}`), ''] : [])
 ].join('\n')
-
-if (summary) {
-  const { appendFileSync } = await import('node:fs')
-  appendFileSync(summary, `${report}\n`)
-}
 
 console.log(report)
 if (errors.length > 0) process.exit(1)

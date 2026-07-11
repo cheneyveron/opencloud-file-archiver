@@ -7,6 +7,9 @@ observed_at_utc: "2026-07-10T00:00:00Z"
 opencloud:
   repository: "opencloud-eu/opencloud"
   channel: "stable"
+  # Deliberate compatibility allowance. Renovate must never advance this major;
+  # a new embedded Web major requires roadmap review and explicit approval.
+  embedded_web_major: "7"
   # renovate: datasource=github-releases depName=opencloud-eu/opencloud
   stable_release: "v7.2.1"
   # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
@@ -18,7 +21,8 @@ toolchains:
   go: "1.26.5"
   # renovate: datasource=docker depName=golang versioning=docker
   go_image: "golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2"
-  # Matches the Volta version used by the current OpenCloud Web stable line.
+  # Same stable major as OpenCloud Web's Volta version and no older than it.
+  # Exact frontend compatibility is still proven by the release E2E gate.
   # renovate: datasource=node-version depName=node
   node: "24.18.0"
   # renovate: datasource=docker depName=node versioning=docker
