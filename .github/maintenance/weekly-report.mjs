@@ -7,6 +7,7 @@ import {
   isAbandonedRenovatePullRequest,
   isPendingReleasePullRequest,
   lockedDirectPnpmVersions,
+  openCloudWebCompatibilityFindings,
   pnpmUpdateSummary,
   requiredCheckSummary,
   replacementLeadLabel,
@@ -190,6 +191,8 @@ if (!new RegExp(`:${expectedImageVersion.replaceAll('.', '\\.')}@sha256:[a-f0-9]
 let upstreamGo = 'lookup-failed'
 let upstreamWeb = 'lookup-failed'
 let upstreamNode = 'lookup-failed'
+let upstreamPnpm = 'lookup-failed'
+let upstreamWebPackageVersion = 'lookup-failed'
 if (latestTag !== 'lookup-failed') {
   const upstreamGoMod = run('gh', [
     'api', '-H', 'Accept: application/vnd.github.raw+json',
@@ -203,7 +206,8 @@ if (latestTag !== 'lookup-failed') {
     upstreamGo = upstreamGoMod.match(/^go\s+(\S+)/m)?.[1] || 'lookup-failed'
   }
   if (typeof upstreamWebMakefile === 'string') {
-    upstreamWeb = upstreamWebMakefile.match(/^WEB_ASSETS_VERSION\s*=\s*(\S+)/m)?.[1] || 'lookup-failed'
+    const versions = [...upstreamWebMakefile.matchAll(/^WEB_ASSETS_VERSION\s*=\s*(\S+)\s*$/gm)]
+    upstreamWeb = versions.length === 1 ? versions[0][1] : 'lookup-failed'
   }
   if (upstreamWeb !== 'lookup-failed') {
     const upstreamWebPackage = run('gh', [
@@ -212,23 +216,38 @@ if (latestTag !== 'lookup-failed') {
     ])
     if (typeof upstreamWebPackage === 'string') {
       try {
-        upstreamNode = JSON.parse(upstreamWebPackage)?.volta?.node || 'lookup-failed'
+        const packageJson = JSON.parse(upstreamWebPackage)
+        upstreamNode = packageJson?.volta?.node || 'lookup-failed'
+        upstreamPnpm = String(packageJson?.packageManager || '').match(/^pnpm@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/)?.[1] || 'lookup-failed'
+        upstreamWebPackageVersion = packageJson?.version || 'lookup-failed'
       } catch {
         upstreamNode = 'lookup-failed'
+        upstreamPnpm = 'lookup-failed'
+        upstreamWebPackageVersion = 'lookup-failed'
       }
     }
   }
 }
-if (upstreamGo === 'lookup-failed' || upstreamWeb === 'lookup-failed' || upstreamNode === 'lookup-failed') {
-  configurationBlockers.push('OpenCloud Go, embedded Web, or Web Node compatibility metadata could not be resolved')
+if ([upstreamGo, upstreamWeb, upstreamNode, upstreamPnpm, upstreamWebPackageVersion].includes('lookup-failed')) {
+  configurationBlockers.push('OpenCloud Go or embedded Web version, Node, and pnpm compatibility metadata could not be resolved')
 }
 const lockedGoMinimum = compatibility.match(/^  go_module_minimum: "([^"]+)"$/m)?.[1] || ''
 const lockedNode = compatibility.match(/^  node: "([^"]+)"$/m)?.[1] || ''
+const lockedPnpm = compatibility.match(/^  pnpm: "([^"]+)"$/m)?.[1] || ''
+const approvedWebMajor = compatibility.match(/^  embedded_web_major: "([^"]+)"$/m)?.[1] || ''
 if (upstreamGo !== 'lookup-failed' && upstreamGo !== lockedGoMinimum) {
   configurationBlockers.push(`OpenCloud requires Go ${upstreamGo}, but go_module_minimum is ${lockedGoMinimum || 'missing'}`)
 }
-if (upstreamNode !== 'lookup-failed' && upstreamNode !== lockedNode) {
-  configurationBlockers.push(`Embedded OpenCloud Web requires Node ${upstreamNode}, but toolchains.node is ${lockedNode || 'missing'}`)
+if (![upstreamWeb, upstreamNode, upstreamPnpm, upstreamWebPackageVersion].includes('lookup-failed')) {
+  configurationBlockers.push(...openCloudWebCompatibilityFindings({
+    approvedWebMajor,
+    selectedNode: lockedNode,
+    selectedPnpm: lockedPnpm,
+    upstreamNode,
+    upstreamPackageVersion: upstreamWebPackageVersion,
+    upstreamPnpm,
+    upstreamWeb,
+  }))
 }
 
 const pullRequests = releasePreflight ? [] : json('gh', [
@@ -417,7 +436,8 @@ const lines = [
   `Latest OpenCloud stable: ${latestTag}`,
   `Latest OpenCloud required Go: ${upstreamGo}`,
   `Latest OpenCloud embedded Web: ${upstreamWeb}`,
-  `Embedded OpenCloud Web required Node: ${upstreamNode}`,
+  `Embedded OpenCloud Web Volta Node baseline: ${upstreamNode}`,
+  `Embedded OpenCloud Web pnpm baseline: ${upstreamPnpm}`,
   `OpenCloud update detected: ${upstreamChanged ? 'yes' : 'no'}`,
   `Unresolved blockers: ${unresolved.length}`,
   '',

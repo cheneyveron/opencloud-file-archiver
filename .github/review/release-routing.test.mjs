@@ -44,3 +44,9 @@ test('every queued formal release resolves current main and covered revisions be
 test('optional BuildKit cache writes cannot fail a formal release', () => {
   assert.doesNotMatch(release, /cache-to:\s*type=gha/)
 })
+
+test('frontend packaging does not request a Go module cache without a root go.mod', () => {
+  const frontendJob = release.match(/  frontend-artifact:[\s\S]*?(?=\n  backend-candidate:)/)?.[0]
+  assert.ok(frontendJob)
+  assert.match(frontendJob, /name: Set up release packaging Go toolchain[\s\S]*?cache: false/)
+})

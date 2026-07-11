@@ -26,6 +26,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # This base-trusted review must run before any code from the proposed
+      # revision can mutate the checkout or the GitHub event payload.
+      - name: Review roadmap scope and security-sensitive changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GIT_NO_REPLACE_OBJECTS: 1
+          GITHUB_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git cat-file -e "${BASE_SHA}:.github/review/pr-policy.mjs" 2>/dev/null; then
+            git show "${BASE_SHA}:.github/review/pr-policy.mjs" | node --input-type=module
+          else
+            # Bootstrap only: once this policy exists on main, PRs cannot replace
+            # the executable reviewer with their proposed copy.
+            node .github/review/pr-policy.mjs
+          fi
+
       - name: Test the trusted review helpers
         run: node --test .github/review/*.test.mjs
 
@@ -43,21 +61,6 @@ jobs:
             --entrypoint /usr/local/renovate/node \
             "$renovate_image" \
             --test .github/review/renovate-effective-policy.container.mjs
-
-      - name: Review roadmap scope and security-sensitive changes
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITHUB_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if git cat-file -e "${BASE_SHA}:.github/review/pr-policy.mjs" 2>/dev/null; then
-            git show "${BASE_SHA}:.github/review/pr-policy.mjs" | node --input-type=module
-          else
-            # Bootstrap only: once this policy exists on main, PRs cannot replace
-            # the executable reviewer with their proposed copy.
-            node .github/review/pr-policy.mjs
-          fi
 
       - name: Merge queue policy marker
         if: github.event_name == 'merge_group'
