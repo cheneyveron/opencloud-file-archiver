@@ -32,9 +32,11 @@ Protect `main`, require pull requests, and require these exact checks:
 
 - `Automated review / policy`
 - `Full acceptance / locked OpenCloud stable`
+- `CodeQL / go`
+- `CodeQL / javascript-typescript`
 
 Require the branch to be current before merge and prevent bypass by the Renovate bot. Renovate may
-enable platform automerge, but GitHub will merge only after both checks pass. Do not require a human
+enable platform automerge, but GitHub will merge only after all required checks pass. Do not require a human
 approval: that would stop the weekly unattended path. Keep CODEOWNERS advisory, require resolution
 of review threads, and set the required approval count to zero. Limit application of
 `review:automation`, `security:high`, and `security:critical` to trusted maintainers and the
@@ -44,6 +46,19 @@ including pre-release transitions that do not have a `major` update type.
 
 Never change PR validation to `pull_request_target`. It intentionally has read-only contents access,
 does not persist checkout credentials, and receives no repository secrets.
+
+`source-security.yml` scans both shipped code paths on every pull request and `main` push: Go uses
+CodeQL autobuild, while the Vue/JavaScript/TypeScript sources use database-only extraction. It has
+no schedule, repository secrets, shell steps, or third-party actions. Its only write permission is
+the narrowly constrained `security-events: write` needed to upload CodeQL results. Enable the
+ruleset's native code-scanning gate after the first successful scan on `main`; require CodeQL error
+results and block Medium-or-higher security alerts. Keep the two named CodeQL matrix checks required
+as a separate fail-closed guard against a skipped or failed analysis upload.
+
+All actions in that workflow are constrained by the default-branch review policy to explicitly
+approved commit SHAs. Updating one is intentionally a two-PR operation: first audit and approve the
+new upstream commit in `workflow-policy.py`, merge that policy-only change, then update the workflow
+pin. This prevents a workflow PR from approving the action code it is about to execute.
 
 ## Native Dependabot security pull requests
 

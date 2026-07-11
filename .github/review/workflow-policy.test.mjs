@@ -116,6 +116,36 @@ test('rejects fake SARIF upload, alert API mutation, or CodeQL upload suppressio
   assert.equal(analyze('.github/workflows/source-security.yml', noUpload).length, 1)
 })
 
+test('rejects arbitrary commits even when they use approved action repository names', () => {
+  const permissions = '      actions: read\n      contents: read\n      security-events: write'
+  const unapprovedCheckout = workflow(permissions).replace(
+    'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
+    `actions/checkout@${'a'.repeat(40)}`,
+  )
+  const unapprovedCodeql = workflow(permissions).replaceAll(
+    'github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+    `github/codeql-action/init@${'b'.repeat(40)}`,
+  ).replaceAll(
+    'github/codeql-action/autobuild@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+    `github/codeql-action/autobuild@${'b'.repeat(40)}`,
+  ).replaceAll(
+    'github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+    `github/codeql-action/analyze@${'b'.repeat(40)}`,
+  )
+  assert.equal(analyze('.github/workflows/source-security.yml', unapprovedCheckout).length, 1)
+  assert.equal(analyze('.github/workflows/source-security.yml', unapprovedCodeql).length, 1)
+})
+
+test('rejects quoted and unquoted trigger keys that normalize to the same Actions key', () => {
+  const permissions = '      actions: read\n      contents: read\n      security-events: write'
+  const conflictingTriggers = workflow(permissions)
+    .replace('\non:\n  pull_request:', '\n"on":\n  pull_request:')
+    .replace('\npermissions: {}', '\non:\n  pull_request_target: {}\npermissions: {}')
+  const findings = analyze('.github/workflows/source-security.yml', conflictingTriggers)
+  assert.equal(findings.length, 1)
+  assert.match(findings[0], /workflow YAML is invalid:.*duplicate key 'on'/s)
+})
+
 test('rejects every run step, github context export, and checkout credential persistence', () => {
   const permissions = '      actions: read\n      contents: read\n      security-events: write'
   assert.equal(

@@ -1,6 +1,7 @@
 # OpenCloud File Archiver
 
 [![Pull request validation](https://github.com/cheneyveron/opencloud-file-archiver/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/cheneyveron/opencloud-file-archiver/actions/workflows/pr-validation.yml)
+[![Source security](https://github.com/cheneyveron/opencloud-file-archiver/actions/workflows/source-security.yml/badge.svg)](https://github.com/cheneyveron/opencloud-file-archiver/actions/workflows/source-security.yml)
 
 The File Archiver Plugin many OpenCloud users have been waiting for.
 
