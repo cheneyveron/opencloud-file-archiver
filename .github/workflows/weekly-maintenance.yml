@@ -121,6 +121,7 @@ jobs:
 
       - name: Report unresolved maintenance blockers
         env:
+          BLOCKERS_CLEAR: ${{ steps.report.outputs.blockers_clear }}
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Automated maintenance blockers"
@@ -131,7 +132,7 @@ jobs:
             --json number,title \
             --jq '.[] | select(.title == "Automated maintenance blockers") | .number' \
             | head -n 1)
-          if ! grep -q '^Unresolved blockers: 0$' weekly-maintenance-report.md; then
+          if [ "$BLOCKERS_CLEAR" != true ]; then
             if [ -n "$issue_number" ]; then
               gh issue edit "$issue_number" --body-file weekly-maintenance-report.md
             else

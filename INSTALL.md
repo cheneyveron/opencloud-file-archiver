@@ -13,9 +13,18 @@ Release `X.Y.Z` contains:
 
 The ZIP has one top-level directory named `file-archiver/`; that directory contains
 `manifest.json`, the hashed ESM Module Federation entrypoint, JavaScript chunks, and CSS assets.
+The manifest carries a machine-readable backend disclosure and installation link. Current
+OpenCloud releases only consume its entrypoint; the same warning is therefore also shown by the
+extension when its backend health check fails and is published in App Store catalog metadata.
 The container tag is a multi-architecture manifest for Linux amd64 and arm64.
 The companion backend is mandatory: installing only the Web ZIP leaves all archive operations
 without an execution service.
+
+Every formal Release also includes `file-archiver-app-store-entry-X.Y.Z.json`. It is a validated
+catalog entry with the exact ZIP URL, minimum accepted OpenCloud version, and backend warning.
+OpenCloud's default App Store catalog is maintained separately in `opencloud-eu/awesome-apps` and
+downloads rather than installs ZIPs; publishing this repository therefore generates the reviewed
+catalog input but never writes to that separately owned project without explicit authorization.
 
 ## Verify and unpack the frontend
 

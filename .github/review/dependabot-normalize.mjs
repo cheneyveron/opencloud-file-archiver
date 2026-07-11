@@ -182,8 +182,10 @@ const automationBoundary = (file) => {
     normalized === 'renovate.json' ||
     normalized === 'compatibility.lock.yaml' ||
     normalized === 'scripts/acceptance.sh' ||
+    normalized === 'scripts/app-store-entry.mjs' ||
     normalized === 'scripts/package-web.go' ||
     normalized.startsWith('tests/e2e/') ||
+    normalized === 'web-app-file-archiver/src/manifest.json' ||
     normalized.startsWith('web-app-file-archiver/tests/e2e/')
 }
 

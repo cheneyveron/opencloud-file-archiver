@@ -182,6 +182,9 @@ jobs:
             web-app-file-archiver/dist \
             "$GITHUB_WORKSPACE/file-archiver-$VERSION.zip"
           sha256sum "file-archiver-$VERSION.zip" > "file-archiver-$VERSION.zip.sha256"
+          node scripts/app-store-entry.mjs create \
+            "$VERSION" \
+            "$GITHUB_WORKSPACE/file-archiver-app-store-entry-$VERSION.json"
 
       - name: Upload the only frontend release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -190,6 +193,7 @@ jobs:
           path: |
             file-archiver-${{ needs.plan.outputs.version }}.zip
             file-archiver-${{ needs.plan.outputs.version }}.zip.sha256
+            file-archiver-app-store-entry-${{ needs.plan.outputs.version }}.json
           if-no-files-found: error
           retention-days: 30
 
@@ -289,7 +293,11 @@ jobs:
       - name: Verify ZIP layout and checksum
         env:
           VERSION: ${{ needs.plan.outputs.version }}
-        run: bash .github/acceptance/verify-release-frontend.sh "$RUNNER_TEMP/release-artifacts/file-archiver-$VERSION.zip"
+        run: |
+          bash .github/acceptance/verify-release-frontend.sh "$RUNNER_TEMP/release-artifacts/file-archiver-$VERSION.zip"
+          node scripts/app-store-entry.mjs verify \
+            "$VERSION" \
+            "$RUNNER_TEMP/release-artifacts/file-archiver-app-store-entry-$VERSION.json"
 
       - name: Log in to GHCR for the private candidate tag
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
@@ -467,6 +475,7 @@ jobs:
             "The backend service is required; the Web extension is not functional without the matching backend image." \
             "" \
             "- Frontend: file-archiver-$VERSION.zip" \
+            "- App Store metadata: file-archiver-app-store-entry-$VERSION.json" \
             "- Backend: $IMAGE_NAME:$VERSION@$CANDIDATE_DIGEST (linux/amd64, linux/arm64)" \
             "- Release kind: $RELEASE_KIND" \
             "- Accepted commit: $SOURCE_SHA" \
@@ -484,12 +493,14 @@ jobs:
             gh release upload "v$VERSION" \
               "file-archiver-$VERSION.zip" \
               "file-archiver-$VERSION.zip.sha256" \
+              "file-archiver-app-store-entry-$VERSION.json" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           else
             gh release create "v$VERSION" \
               "file-archiver-$VERSION.zip" \
               "file-archiver-$VERSION.zip.sha256" \
+              "file-archiver-app-store-entry-$VERSION.json" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_SHA" \
               --title "OpenCloud File Archiver $VERSION" \
