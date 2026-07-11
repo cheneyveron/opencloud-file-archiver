@@ -24,7 +24,8 @@ alerts read, contents/pull-request/issue write, and merge permission.
 `renovate.json` deliberately says `schedule: at any time`: Renovate itself is started only by the
 one Monday Actions cron, so adding another internal weekly window would create competing schedules.
 High/Critical vulnerability PRs can also be created by a trusted security bot or manually before
-Monday; their trusted severity label enters the immediate post-merge release path.
+Monday; their trusted severity label enters the immediate post-merge release path for runtime or
+build-chain dependencies.
 
 ## Branch protection / ruleset
 
@@ -41,8 +42,9 @@ approval: that would stop the weekly unattended path. Keep CODEOWNERS advisory, 
 of review threads, and set the required approval count to zero. Limit application of
 `review:automation`, `security:high`, and `security:critical` to trusted maintainers and the
 dedicated Renovate identity. Renovate adds `review:automation` only to its generated workflow-action
-and compatibility-lock updates; anything Renovate classifies as breaking still cannot automerge,
-including pre-release transitions that do not have a `major` update type.
+and compatibility-lock updates. Breaking updates default to manual roadmap review, including
+pre-release transitions that do not have a `major` update type. The only exception is an isolated
+High/Critical vulnerability update, which can merge only after every required gate passes.
 
 Never change PR validation to `pull_request_target`. It intentionally has read-only contents access,
 does not persist checkout credentials, and receives no repository secrets.
@@ -75,11 +77,20 @@ workflows:
 
 The normalizer gets advisory severity from the repository's Dependabot alerts API, not from PR
 prose. It adds the roadmap, security-impact, advisory, and validation fields required by the base
-PR policy. Low/Medium non-major fixes receive `release:weekly`; High/Critical non-major fixes
-receive the urgent security label. These known-severity, non-major updates request GitHub
-auto-merge, which remains blocked until the required policy and full-acceptance checks pass. A
-major, unclassified, stale, unsigned, cross-repository, or ambiguous update never requests
-auto-merge and receives `roadmap:required` or fails closed.
+PR policy. Every dependency in the signed metadata must match an open alert and its patched version
+before any automatic merge is requested. Low/Medium non-major fixes receive `release:weekly`;
+High/Critical fixes receive the urgent security label. A major update is eligible only when every
+major dependency independently matches a High/Critical alert. Eligible updates remain blocked
+until policy, both CodeQL analyses, and full acceptance pass. An unmatched, unclassified, stale,
+unsigned, cross-repository, ambiguous, or non-urgent major update never requests auto-merge and
+receives `roadmap:required` or fails closed.
+
+Workflow files remain an automation boundary. The narrow unattended exception is a verified native
+Dependabot `github_actions` update whose complete changed-file set contains only expected workflow
+YAML and whose signed dependencies all match alerts. It still receives `review:automation` and must
+pass the base workflow policy, both CodeQL analyses, and full acceptance. The exact allowlist on
+`source-security.yml` remains stricter, so a new CodeQL action SHA requires the documented two-PR
+approval sequence instead of self-approval.
 
 The write-side identity needs Dependabot alerts read permission to resolve advisory severity plus
 narrowly scoped PR/issue/content write permissions to update metadata, labels, and the auto-merge
@@ -115,6 +126,11 @@ points at current main.
 A merged PR labeled `security:high` or `security:critical` invokes the same workflow immediately.
 Maintainers can also dispatch `release.yml` with `release_kind=urgent`. Urgency never skips full
 acceptance.
+
+The post-merge caller deliberately has no workflow-level concurrency group: GitHub keeps only one
+pending run per group, so grouping callers could discard an urgent event behind an unrelated weekly
+merge. All release-bearing callers enter `release.yml`, whose single `formal-release` group safely
+coalesces them because every surviving run re-resolves and publishes the current `main` HEAD.
 
 Configure a `release` GitHub Environment without required reviewers so weekly and urgent releases
 remain unattended; do not place build credentials in that environment. Candidate GHCR images are

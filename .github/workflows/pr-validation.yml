@@ -29,6 +29,21 @@ jobs:
       - name: Test the trusted review helpers
         run: node --test .github/review/*.test.mjs
 
+      - name: Test effective routing with the locked Renovate engine
+        run: |
+          renovate_image=$(node .github/compatibility/read-lock.mjs | jq -r .renovate_image)
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --workdir /workspace \
+            --entrypoint /usr/local/renovate/node \
+            "$renovate_image" \
+            --test .github/review/renovate-effective-policy.container.mjs
+
       - name: Review roadmap scope and security-sensitive changes
         if: github.event_name == 'pull_request'
         env:

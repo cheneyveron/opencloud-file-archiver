@@ -14,8 +14,8 @@ const LABELS = {
   'security:triage': { color: 'fbca04', description: 'Security severity or alert association needs review' },
   'security:low': { color: 'c5def5', description: 'Trusted Low-severity Dependabot security update' },
   'security:medium': { color: 'e4e669', description: 'Trusted Medium-severity Dependabot security update' },
-  'security:high': { color: 'd93f0b', description: 'Trusted High-severity runtime security release' },
-  'security:critical': { color: 'b60205', description: 'Trusted Critical runtime security release' },
+  'security:high': { color: 'd93f0b', description: 'Trusted High-severity dependency security release' },
+  'security:critical': { color: 'b60205', description: 'Trusted Critical dependency security release' },
   'release:weekly': { color: '1d76db', description: 'Merge enters the next weekly accepted release' },
   'roadmap:required': { color: '5319e7', description: 'Breaking or unclassified update needs a roadmap decision' },
   'review:automation': { color: '5319e7', description: 'Trusted bot changed an automation boundary' }
@@ -221,26 +221,44 @@ export function makeNormalizationPlan ({ dependencies, alerts, changedFiles, eco
   invariant(dependencies.length > 0, 'Verified Dependabot commit metadata contains no dependencies')
   const matchedAlerts = matchAlerts({ dependencies, alerts, changedFiles })
   const severity = highestSeverity(matchedAlerts)
+  const matchedDependencies = new Set(matchedAlerts.map(({ dependency }) => dependency))
+  const allDependenciesMatched = dependencies.every((dependency) => matchedDependencies.has(dependency))
   const knownUpdateTypes = dependencies.every(({ updateType }) =>
     ['version-update:semver-patch', 'version-update:semver-minor', 'version-update:semver-major'].includes(updateType)
   )
-  const major = dependencies.some(({ updateType }) => updateType === 'version-update:semver-major')
+  const majorDependencies = dependencies.filter(({ updateType }) => updateType === 'version-update:semver-major')
+  const major = majorDependencies.length > 0
+  const everyMajorIsUrgent = majorDependencies.every((dependency) =>
+    matchedAlerts.some((match) =>
+      match.dependency === dependency && (match.severity === 'high' || match.severity === 'critical')
+    )
+  )
   const touchesAutomation = changedFiles.some(automationBoundary)
   const onlyExpectedDependencyFiles = changedFiles.length > 0 &&
     changedFiles.every((file) => expectedDependencyFile(file, ecosystem))
-  const enableAutoMerge = Boolean(severity) && knownUpdateTypes && !major &&
-    onlyExpectedDependencyFiles && !touchesAutomation
+  const verifiedWorkflowActionUpdate = ecosystem === 'github_actions' &&
+    onlyExpectedDependencyFiles && changedFiles.every((file) => {
+      const normalized = normalizePath(file)
+      return normalized.startsWith('.github/workflows/') && /\.ya?ml$/.test(normalized)
+    })
+  const manualAutomationBoundary = touchesAutomation && !verifiedWorkflowActionUpdate
+  const enableAutoMerge = Boolean(severity) && allDependenciesMatched && knownUpdateTypes &&
+    everyMajorIsUrgent &&
+    onlyExpectedDependencyFiles && !manualAutomationBoundary
   const labels = new Set(['dependencies', 'dependabot:normalized'])
 
   if (severity) labels.add(`security:${severity}`)
   else labels.add('security:triage')
   if (severity === 'low' || severity === 'medium') labels.add('release:weekly')
-  if (major || !knownUpdateTypes || !severity || !onlyExpectedDependencyFiles || touchesAutomation) labels.add('roadmap:required')
+  if (!allDependenciesMatched || !everyMajorIsUrgent || !knownUpdateTypes || !severity ||
+      !onlyExpectedDependencyFiles || manualAutomationBoundary) labels.add('roadmap:required')
   if (touchesAutomation) labels.add('review:automation')
 
   const references = advisoryReferences(matchedAlerts)
-  const impact = severity
-    ? `${titleCase(severity)} Dependabot alert resolved by the signed update metadata.`
+  const impact = severity && allDependenciesMatched
+    ? `${titleCase(severity)} Dependabot alert resolved; every signed dependency is covered by a matching open alert and patched version.`
+    : severity
+      ? `${titleCase(severity)} alert matched, but at least one signed dependency is not covered by a matching open alert; automatic merge is disabled.`
     : 'Unknown; no matching open Dependabot alert with a verified patched version was found, so automatic merge is disabled.'
   const advisory = references.length > 0
     ? references.join(', ')
@@ -252,9 +270,9 @@ export function makeNormalizationPlan ({ dependencies, alerts, changedFiles, eco
     'Roadmap item: RM-001',
     `Security impact: ${impact}`,
     `Security advisory: ${advisory}`,
-    'Validation: Automated review / policy and Full acceptance / locked OpenCloud stable must both pass before merge.',
+    'Validation: Automated review / policy, both CodeQL analyses, and Full acceptance / locked OpenCloud stable must pass before merge.',
     `Unexpected changes: None expected outside the signed Dependabot update for ${dependencyNames}.`,
-    `Dependency update type: ${updateTypes.join(', ')}${major ? ' (major; manual roadmap decision required)' : ''}`,
+    `Dependency update type: ${updateTypes.join(', ')}${major ? everyMajorIsUrgent && allDependenciesMatched ? ' (major; every major dependency is covered by a High/Critical alert)' : ' (major; manual roadmap decision required)' : ''}`,
     `Normalized head SHA: ${headSha || 'missing'}`,
     `Automatic merge: ${enableAutoMerge ? 'eligible after required checks' : 'disabled by trusted classification'}`,
     BLOCK_END
@@ -262,11 +280,14 @@ export function makeNormalizationPlan ({ dependencies, alerts, changedFiles, eco
 
   return {
     body: replaceManagedBlock(existingBody, block),
+    allDependenciesMatched,
     enableAutoMerge,
+    everyMajorIsUrgent,
     labels: [...labels].sort(),
     major,
     matchedAlerts,
-    severity
+    severity,
+    verifiedWorkflowActionUpdate
   }
 }
 
@@ -452,9 +473,10 @@ export async function normalizeDependabot ({ event, repository, api }) {
   }
   let plan = makeNormalizationPlan({ ...planInputs, existingBody: pullRequest.body || '' })
 
-  // First write: all run, repository, PR, SHA, author, and signed-commit checks
-  // above have succeeded against the live GitHub API.
-  await getVerifiedLivePullRequest(api, pullNumber, liveContext)
+  // First possible write: revoke any authorization left on an older head before
+  // body or label mutations. Every later failure therefore leaves auto-merge off.
+  const beforeMetadata = await getVerifiedLivePullRequest(api, pullNumber, liveContext)
+  await setAutoMerge(api, beforeMetadata, false)
   for (const label of plan.labels) await ensureLabel(api, repository, label)
   const beforeBody = await getVerifiedLivePullRequest(api, pullNumber, liveContext)
   plan = makeNormalizationPlan({ ...planInputs, existingBody: beforeBody.body || '' })
@@ -472,8 +494,28 @@ export async function normalizeDependabot ({ event, repository, api }) {
     method: 'PUT',
     body: { labels }
   })
-  const beforeAutoMerge = await getVerifiedLivePullRequest(api, pullNumber, liveContext)
-  await setAutoMerge(api, beforeAutoMerge, plan.enableAutoMerge)
+
+  // Revoke again to close a concurrent re-enable race, then require the live
+  // metadata to be exactly what this plan authorized before granting anything.
+  const beforeFinalVerification = await getVerifiedLivePullRequest(api, pullNumber, liveContext)
+  await setAutoMerge(api, beforeFinalVerification, false)
+  const verifiedMetadata = await getVerifiedLivePullRequest(api, pullNumber, liveContext)
+  invariant(verifiedMetadata.body === plan.body, 'Pull request body changed during normalization')
+  const verifiedLabels = (verifiedMetadata.labels || []).map(({ name }) => name).sort()
+  invariant(JSON.stringify(verifiedLabels) === JSON.stringify(labels), 'Pull request labels changed during normalization')
+  invariant(!verifiedMetadata.auto_merge, 'Auto-merge could not be revoked before final classification')
+
+  if (plan.enableAutoMerge) {
+    await setAutoMerge(api, verifiedMetadata, true)
+    const afterEnable = await getVerifiedLivePullRequest(api, pullNumber, liveContext)
+    const afterEnableLabels = (afterEnable.labels || []).map(({ name }) => name).sort()
+    if (afterEnable.body !== plan.body || afterEnable.head.sha !== pullRequest.head.sha ||
+        JSON.stringify(afterEnableLabels) !== JSON.stringify(labels)) {
+      await setAutoMerge(api, afterEnable, false)
+      invariant(false, 'Pull request metadata changed while enabling auto-merge')
+    }
+    invariant(Boolean(afterEnable.auto_merge), 'Auto-merge was not enabled after final verification')
+  }
 
   return { ...plan, labels, pullNumber }
 }

@@ -41,8 +41,8 @@ jobs:
           gh label create "security:triage" --color fbca04 --description "Security severity or alert association needs review" --force
           gh label create "security:low" --color c5def5 --description "Trusted Low-severity Dependabot security update" --force
           gh label create "security:medium" --color e4e669 --description "Trusted Medium-severity Dependabot security update" --force
-          gh label create "security:high" --color d93f0b --description "Trusted High-severity runtime security release" --force
-          gh label create "security:critical" --color b60205 --description "Trusted Critical runtime security release" --force
+          gh label create "security:high" --color d93f0b --description "Trusted High-severity dependency security release" --force
+          gh label create "security:critical" --color b60205 --description "Trusted Critical dependency security release" --force
           gh label create "roadmap:required" --color 5319e7 --description "Breaking or unclassified update needs a roadmap decision" --force
           gh label create "review:automation" --color 5319e7 --description "Maintainer reviewed workflow or release automation changes" --force
           gh label create "maintenance:blocked" --color e4e669 --description "Automated maintenance or release is blocked" --force
