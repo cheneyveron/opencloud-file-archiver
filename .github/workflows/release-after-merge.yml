@@ -6,9 +6,9 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: post-merge-release-dispatch
-  cancel-in-progress: false
+# Do not add workflow-level concurrency here. GitHub retains only one pending
+# run per group, so an unrelated weekly merge could otherwise replace a queued
+# urgent-security dispatch before it enters the durable formal-release group.
 
 jobs:
   urgent-release:
