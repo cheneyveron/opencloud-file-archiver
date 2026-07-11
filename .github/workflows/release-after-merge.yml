@@ -6,9 +6,9 @@ on:
 
 permissions: {}
 
-# Do not add workflow-level concurrency here. GitHub retains only one pending
-# run per group, so an unrelated weekly merge could otherwise replace a queued
-# urgent-security dispatch before it enters the durable formal-release group.
+# Do not add workflow-level concurrency here. Every accepted merge must reach
+# the batch-settling job and then the durable FIFO queue in release.yml, where
+# already-published main revisions become cheap no-ops.
 
 jobs:
   urgent-release:
@@ -26,7 +26,7 @@ jobs:
       release_kind: urgent
 
   weekly-batch-ready:
-    name: Wait until the weekly batch is fully merged
+    name: Wait for the releasable weekly batch to settle
     if: >-
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release:weekly') &&
@@ -34,28 +34,48 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, 'security:high')
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       ready: ${{ steps.batch.outputs.ready }}
     steps:
-      - name: Check for another open weekly release PR
+      - name: Check out trusted release routing helpers
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Wait for accepted siblings and quarantine failed candidates
         id: batch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pending=$(gh pr list \
-            --repo "$GITHUB_REPOSITORY" \
-            --state open \
-            --label "release:weekly" \
-            --limit 100 \
-            --json number \
-            --jq 'length')
-          if [ "$pending" -eq 0 ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::$pending weekly release PR(s) are still open; the final merge will publish the batch"
+          ready=false
+          for attempt in $(seq 1 120); do
+            pulls=$(gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state open \
+              --label "release:weekly" \
+              --limit 100 \
+              --json number,title,headRefName,labels,statusCheckRollup)
+            analysis=$(printf '%s' "$pulls" | node .github/review/release-batch.mjs)
+            ready=$(printf '%s' "$analysis" | jq -r .ready)
+            blocking=$(printf '%s' "$analysis" | jq -r '[.blocking[].number] | join(", ")')
+            quarantined=$(printf '%s' "$analysis" | jq -r '[.quarantined[].number] | join(", ")')
+            if [ -n "$quarantined" ]; then
+              echo "::notice::Failed weekly candidates are quarantined and do not suppress this accepted release: $quarantined"
+            fi
+            if [ "$ready" = true ]; then
+              break
+            fi
+            echo "::notice::Waiting for releasable weekly PRs: $blocking"
+            sleep 10
+          done
+          if [ "$ready" != true ]; then
+            echo "::warning::The weekly batch did not settle within twenty minutes; releasing the already accepted revision while remaining PRs continue independently"
+            ready=true
           fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
 
   weekly-release:
     needs: weekly-batch-ready

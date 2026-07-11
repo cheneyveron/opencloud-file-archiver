@@ -156,6 +156,8 @@
         "dependencies",
         "release:weekly"
       ],
+      "groupName": "runtime and build toolchain compatibility",
+      "groupSlug": "runtime-build-toolchain-compatibility",
       "automerge": true,
       "automergeType": "pr"
     },
@@ -167,6 +169,24 @@
       "addLabels": [
         "review:automation"
       ]
+    },
+    {
+      "description": "Keep runtime and build toolchains out of the application dependency batch",
+      "matchPackageNames": [
+        "alpine",
+        "aquasec/trivy",
+        "caddy",
+        "docker/buildx",
+        "ghcr.io/renovatebot/renovate",
+        "golang",
+        "golang.org/x/vuln",
+        "moby/buildkit",
+        "node",
+        "pnpm",
+        "tonistiigi/binfmt"
+      ],
+      "groupName": "runtime and build toolchain compatibility",
+      "groupSlug": "runtime-build-toolchain-compatibility"
     },
     {
       "description": "Keep the OpenCloud release marker and exact container digest in one PR",
@@ -205,6 +225,16 @@
         "dependencies",
         "roadmap:required"
       ],
+      "automerge": false
+    },
+    {
+      "description": "Updates from a prerelease baseline require explicit roadmap compatibility review",
+      "matchCurrentVersion": "/-/",
+      "labels": [
+        "dependencies",
+        "roadmap:required"
+      ],
+      "groupName": null,
       "automerge": false
     },
     {
@@ -299,7 +329,18 @@
         "/^compatibility\\.lock\\.yaml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>golang-version|node-version|npm) depName=(?<depName>\\S+)\\n\\s+(?:go|node|pnpm): \\\"(?<currentValue>[^\\\"]+)\\\""
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>golang) versioning=(?<versioning>docker)\\n\\s+go: \\\"(?<goVersion>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""
+      ],
+      "currentValueTemplate": "{{{goVersion}}}-alpine",
+      "autoReplaceStringTemplate": "# renovate: datasource=docker depName=golang versioning=docker\n  go: \"{{{newVersion}}}\""
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>node-version|npm) depName=(?<depName>\\S+)\\n\\s+(?:node|pnpm): \\\"(?<currentValue>[^\\\"]+)\\\""
       ]
     }
   ]

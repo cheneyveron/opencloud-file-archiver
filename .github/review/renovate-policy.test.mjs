@@ -41,6 +41,7 @@ test('ordinary workflow action updates use the non-breaking weekly guard', () =>
   ])
   assert.equal(actions.automerge, true)
   assert.ok(actions.labels.includes('release:weekly'))
+  assert.equal(actions.groupSlug, 'runtime-build-toolchain-compatibility')
 })
 
 test('breaking classifications default to roadmap review regardless of update type', () => {
@@ -77,4 +78,40 @@ test('breaking High and Critical security updates are isolated and gated for urg
 test('vulnerability alerts are explicitly ungrouped before severity routing', () => {
   assert.equal(config.vulnerabilityAlerts.groupName, null)
   assert.equal(config.vulnerabilityAlerts.labels, undefined)
+})
+
+test('runtime and build toolchains are isolated from application dependencies', () => {
+  const toolchains = rule(
+    'Keep runtime and build toolchains out of the application dependency batch',
+  )
+  for (const dependency of ['alpine', 'caddy', 'golang', 'node', 'pnpm']) {
+    assert.ok(toolchains.matchPackageNames.includes(dependency))
+  }
+  assert.equal(toolchains.groupSlug, 'runtime-build-toolchain-compatibility')
+})
+
+test('prerelease baselines fail closed into roadmap review', () => {
+  const prerelease = rule(
+    'Updates from a prerelease baseline require explicit roadmap compatibility review',
+  )
+  assert.equal(prerelease.matchCurrentVersion, '/-/')
+  assert.equal(prerelease.groupName, null)
+  assert.equal(prerelease.automerge, false)
+  assert.ok(prerelease.labels.includes('roadmap:required'))
+})
+
+test('the Go scalar uses the same Docker lookup as its image references', () => {
+  const scalar = config.customManagers.find(
+    (manager) => manager.currentValueTemplate === '{{{goVersion}}}-alpine',
+  )
+  assert.ok(scalar)
+  assert.equal(scalar.currentValueTemplate, '{{{goVersion}}}-alpine')
+  assert.match(scalar.matchStrings[0], /datasource=\(\?<datasource>docker\)/)
+  assert.match(scalar.autoReplaceStringTemplate, /go: "\{\{\{newVersion\}\}\}"/)
+
+  const genericScalar = config.customManagers.find((manager) =>
+    manager.matchStrings?.some((pattern) => pattern.includes('(?:node|pnpm)')),
+  )
+  assert.ok(genericScalar)
+  assert.ok(!genericScalar.matchStrings[0].includes('golang-version'))
 })

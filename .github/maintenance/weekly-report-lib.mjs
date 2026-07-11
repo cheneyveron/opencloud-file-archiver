@@ -136,23 +136,73 @@ export function safeReportText(value, maximumLength = 500) {
     .slice(0, maximumLength)
 }
 
-const requiredChecks = [
+export const REQUIRED_CHECKS = [
   'Automated review / policy',
   'Full acceptance / locked OpenCloud stable',
+  'CodeQL / go',
+  'CodeQL / javascript-typescript',
 ]
 
-export function requiredCheckSummary(rollup) {
+function checkFreshness(check, index) {
+  const detailsUrl = String(check?.detailsUrl || check?.targetUrl || '')
+  const runMatch = detailsUrl.match(/\/actions\/runs\/(\d+)(?:\/|$)/)
+  const jobMatch = detailsUrl.match(/\/job\/(\d+)(?:\/|$)/)
+  const timestamps = [check?.startedAt, check?.completedAt]
+    .map((value) => Date.parse(value || '') || 0)
+  return {
+    runId: runMatch ? Number(runMatch[1]) : null,
+    jobId: jobMatch ? Number(jobMatch[1]) : null,
+    timestamp: Math.max(...timestamps),
+    index,
+  }
+}
+
+function isNewerCheck(candidate, current) {
+  if (candidate.runId !== null && current.runId !== null && candidate.runId !== current.runId) {
+    return candidate.runId > current.runId
+  }
+  if (candidate.runId !== null && candidate.runId === current.runId &&
+      candidate.jobId !== null && current.jobId !== null && candidate.jobId !== current.jobId) {
+    return candidate.jobId > current.jobId
+  }
+  if (candidate.timestamp !== current.timestamp) return candidate.timestamp > current.timestamp
+  if (candidate.runId !== null && current.runId === null) return true
+  if (candidate.runId === null && current.runId !== null) return false
+  return candidate.index > current.index
+}
+
+export function latestRequiredCheckStates(rollup) {
   const latest = new Map()
-  for (const check of Array.isArray(rollup) ? rollup : []) {
+  for (const [index, check] of (Array.isArray(rollup) ? rollup : []).entries()) {
     const name = check?.name || check?.context
-    if (!requiredChecks.includes(name)) continue
-    const timestamp = Date.parse(check.startedAt || check.completedAt || '') || 0
-    if (!latest.has(name) || timestamp >= latest.get(name).timestamp) {
+    if (!REQUIRED_CHECKS.includes(name)) continue
+    const freshness = checkFreshness(check, index)
+    if (!latest.has(name) || isNewerCheck(freshness, latest.get(name))) {
       latest.set(name, {
         state: String(check.conclusion || check.state || check.status || 'pending').toLowerCase(),
-        timestamp,
+        ...freshness,
       })
     }
   }
-  return requiredChecks.map((name) => `${name}: ${latest.get(name)?.state || 'missing'}`).join('; ')
+  return Object.fromEntries(REQUIRED_CHECKS.map((name) => [name, latest.get(name)?.state || 'missing']))
+}
+
+export function requiredCheckSummary(rollup) {
+  const states = latestRequiredCheckStates(rollup)
+  return REQUIRED_CHECKS.map((name) => `${name}: ${states[name]}`).join('; ')
+}
+
+export function isAbandonedRenovatePullRequest(pr) {
+  const labels = new Set((Array.isArray(pr?.labels) ? pr.labels : [])
+    .map((label) => typeof label === 'string' ? label : label?.name))
+  return /^renovate\//.test(String(pr?.headRefName || '')) &&
+    labels.has('dependencies') &&
+    /\s-\sabandoned$/i.test(String(pr?.title || ''))
+}
+
+export function isPendingReleasePullRequest(pr) {
+  const labels = new Set((Array.isArray(pr?.labels) ? pr.labels : [])
+    .map((label) => typeof label === 'string' ? label : label?.name))
+  return !isAbandonedRenovatePullRequest(pr) &&
+    ['release:weekly', 'security:high', 'security:critical'].some((label) => labels.has(label))
 }
