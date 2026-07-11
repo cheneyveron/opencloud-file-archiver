@@ -9,6 +9,7 @@ on:
 # secrets. Never convert it to pull_request_target.
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: pr-validation-${{ github.event.pull_request.number || github.ref }}
@@ -25,10 +26,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Test the trusted review helpers
+        run: node --test .github/review/*.test.mjs
+
       - name: Review roadmap scope and security-sensitive changes
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if git cat-file -e "${BASE_SHA}:.github/review/pr-policy.mjs" 2>/dev/null; then

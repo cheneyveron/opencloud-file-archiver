@@ -98,9 +98,9 @@ jobs:
 
           case "$RELEASE_KIND" in weekly|urgent|manual) ;; *) echo "::error::Unknown release kind"; exit 1;; esac
           latest_tag=$(git tag --list --sort=-version:refname | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }')
-          if [ "$RELEASE_KIND" = weekly ] && [ -n "$latest_tag" ] && \
+          if [ "$RELEASE_KIND" != manual ] && [ -n "$latest_tag" ] && \
              [ "$(git rev-list -n 1 "$latest_tag")" = "$source_sha" ]; then
-            echo "::notice::Current main is already published by $latest_tag; this queued weekly release is a no-op"
+            echo "::notice::Current main is already published by $latest_tag; this queued $RELEASE_KIND release is a no-op"
             echo "release_needed=false" >> "$GITHUB_OUTPUT"
             echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
             exit 0
@@ -251,6 +251,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=OpenCloud File Archiver Service
             org.opencontainers.image.description=Required backend for the OpenCloud File Archiver Web extension
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.plan.outputs.version }}
             org.opencontainers.image.revision=${{ needs.plan.outputs.source_sha }}
             org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/${{ needs.plan.outputs.source_sha }}/INSTALL.md
@@ -374,13 +375,21 @@ jobs:
         id: lock
         run: node .github/compatibility/read-lock.mjs github-output
 
-      - name: Refuse to publish an accepted commit that is no longer main HEAD
+      - name: Confirm the accepted commit is still on main
         env:
           ACCEPTED_SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          current_main=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
-          test "$current_main" = "$ACCEPTED_SOURCE_SHA"
+          status=$(gh api \
+            "repos/$GITHUB_REPOSITORY/compare/$ACCEPTED_SOURCE_SHA...main" \
+            --jq .status)
+          case "$status" in
+            identical|ahead) ;;
+            *)
+              echo "::error::Accepted source $ACCEPTED_SOURCE_SHA is no longer an ancestor of main (status: $status)"
+              exit 1
+              ;;
+          esac
 
       - name: Set up Go for lifecycle discovery
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0

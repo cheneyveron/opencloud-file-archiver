@@ -1,0 +1,39 @@
+name: Normalize trusted Dependabot pull request
+
+on:
+  workflow_run:
+    workflows: ["Dependabot intake"]
+    types: [completed]
+
+# workflow_run is intentionally separated from the untrusted pull_request run.
+# The write-capable job checks out only the trusted default branch and the Node
+# normalizer re-fetches and verifies every identity and commit before writing.
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-normalize-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  normalize:
+    name: Verify, classify, and normalize
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out only the trusted default branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/review
+          persist-credentials: false
+
+      - name: Re-verify and normalize the Dependabot pull request
+        env:
+          # This trusted bot/PAT token is required so its body/label/merge events
+          # trigger normal PR validation and the post-merge urgent release.
+          GITHUB_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+        run: node .github/review/dependabot-normalize.mjs

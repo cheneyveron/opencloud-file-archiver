@@ -1,7 +1,47 @@
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 
-const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
+let event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
+
+const refreshNormalizedDependabotEvent = async () => {
+  const original = event.pull_request
+  if (original?.user?.login !== 'dependabot[bot]') return
+
+  const repository = process.env.GITHUB_REPOSITORY
+  const token = process.env.GITHUB_TOKEN
+  if (!repository || !token) throw new Error('GITHUB_REPOSITORY and GITHUB_TOKEN are required to verify a Dependabot PR')
+  const deadline = Date.now() + 5 * 60 * 1000
+  const endpoint = `${process.env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repository}/pulls/${original.number}`
+
+  while (Date.now() < deadline) {
+    const response = await fetch(endpoint, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2026-03-10'
+      }
+    })
+    if (!response.ok) throw new Error(`Could not refresh Dependabot PR #${original.number}: GitHub returned ${response.status}`)
+    const live = await response.json()
+    if (live?.user?.login !== 'dependabot[bot]' || live?.head?.repo?.full_name !== repository || live?.base?.repo?.full_name !== repository) {
+      throw new Error('Live Dependabot PR identity or repository changed during policy review')
+    }
+    if (live?.head?.sha !== original?.head?.sha) {
+      throw new Error('Dependabot PR head changed during policy review; the newer synchronize run must decide')
+    }
+    const labels = new Set((live.labels || []).map(({ name }) => name))
+    const normalizedHead = String(live.body || '').match(/^Normalized head SHA:\s*([a-f0-9]{40})\s*$/mi)?.[1]
+    if (labels.has('dependabot:normalized') && normalizedHead) {
+      if (normalizedHead !== live.head.sha) throw new Error('Dependabot normalization marker is stale for the current head')
+      event = { ...event, pull_request: live }
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000))
+  }
+  throw new Error('Timed out waiting for the trusted Dependabot normalizer')
+}
+
+await refreshNormalizedDependabotEvent()
 const body = event.pull_request?.body || ''
 const labels = new Set((event.pull_request?.labels || []).map(({ name }) => name))
 const base = process.env.BASE_SHA

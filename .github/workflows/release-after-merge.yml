@@ -4,9 +4,7 @@ on:
   pull_request:
     types: [closed]
 
-permissions:
-  contents: write
-  packages: write
+permissions: {}
 
 concurrency:
   group: post-merge-release-dispatch
@@ -18,18 +16,53 @@ jobs:
       github.event.pull_request.merged == true &&
       (contains(github.event.pull_request.labels.*.name, 'security:critical') ||
        contains(github.event.pull_request.labels.*.name, 'security:high'))
+    permissions:
+      contents: write
+      packages: write
     uses: ./.github/workflows/release.yml
     with:
       source_sha: ${{ github.event.pull_request.merge_commit_sha }}
       requested_version: ""
       release_kind: urgent
 
-  weekly-release:
+  weekly-batch-ready:
+    name: Wait until the weekly batch is fully merged
     if: >-
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'release:weekly') &&
       !contains(github.event.pull_request.labels.*.name, 'security:critical') &&
       !contains(github.event.pull_request.labels.*.name, 'security:high')
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read
+    outputs:
+      ready: ${{ steps.batch.outputs.ready }}
+    steps:
+      - name: Check for another open weekly release PR
+        id: batch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pending=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label "release:weekly" \
+            --limit 100 \
+            --json number \
+            --jq 'length')
+          if [ "$pending" -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$pending weekly release PR(s) are still open; the final merge will publish the batch"
+          fi
+
+  weekly-release:
+    needs: weekly-batch-ready
+    if: needs.weekly-batch-ready.outputs.ready == 'true'
+    permissions:
+      contents: write
+      packages: write
     uses: ./.github/workflows/release.yml
     with:
       source_sha: ${{ github.event.pull_request.merge_commit_sha }}
