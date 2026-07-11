@@ -27,10 +27,12 @@ Protect `main`, require pull requests, and require these exact checks:
 - `Full acceptance / locked OpenCloud stable`
 
 Require the branch to be current before merge and prevent bypass by the Renovate bot. Renovate may
-enable platform automerge, but GitHub will merge only after both checks pass. Limit application of
-`review:automation`, `security:high`, and `security:critical` to trusted maintainers/bots.
-Enable required CODEOWNERS review so changes to workflow/release boundaries cannot approve
-themselves; `.github/CODEOWNERS` assigns those paths to the repository owner.
+enable platform automerge, but GitHub will merge only after both checks pass. Do not require a human
+approval: that would stop the weekly unattended path. Keep CODEOWNERS advisory, require resolution
+of review threads, and set the required approval count to zero. Limit application of
+`review:automation`, `security:high`, and `security:critical` to trusted maintainers and the
+dedicated Renovate identity. Renovate adds `review:automation` only to its generated workflow-action
+and compatibility-lock updates; major updates still cannot automerge.
 
 Never change PR validation to `pull_request_target`. It intentionally has read-only contents access,
 does not persist checkout credentials, and receives no repository secrets.
@@ -60,9 +62,9 @@ A merged PR labeled `security:high` or `security:critical` invokes the same work
 Maintainers can also dispatch `release.yml` with `release_kind=urgent`. Urgency never skips full
 acceptance.
 
-Configure a `release` GitHub Environment. Optional required reviewers provide a last publication
-approval; do not place build credentials in that environment. Candidate GHCR images are produced
-with the workflow token and addressed by digest.
+Configure a `release` GitHub Environment without required reviewers so weekly and urgent releases
+remain unattended; do not place build credentials in that environment. Candidate GHCR images are
+produced with the workflow token and addressed by digest.
 
 ## Artifact identity
 
