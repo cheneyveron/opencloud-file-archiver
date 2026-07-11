@@ -13,23 +13,46 @@ function analyze(file, source) {
 
 const workflow = (permissions, extra = '') => `
 name: Source security
-on: pull_request
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  merge_group: {}
+  workflow_dispatch: {}
 permissions: {}
 jobs:
   analyze:
+    name: CodeQL / \${{ matrix.language }}
     permissions:
 ${permissions}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - name: Check out the proposed revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9
         with:
-          languages: javascript-typescript
-          build-mode: none
+          languages: \${{ matrix.language }}
+          build-mode: \${{ matrix.build-mode }}
           queries: security-extended
-      - uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9
+      - name: Autobuild Go
+        if: \${{ matrix.build-mode == 'autobuild' }}
+        uses: github/codeql-action/autobuild@99df26d4f13ea111d4ec1a7dddef6063f76b97e9
+      - name: Analyze source
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9
+        with:
+          category: /language:\${{ matrix.language }}
 ${extra}
 `
 
@@ -87,8 +110,8 @@ test('rejects fake SARIF upload, alert API mutation, or CodeQL upload suppressio
   const noUpload = workflow(
     '      actions: read\n      contents: read\n      security-events: write',
   ).replace(
-    '      - uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
-    '      - uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9\n        with:\n          upload: false',
+    '          category: /language:\${{ matrix.language }}',
+    '          category: /language:\${{ matrix.language }}\n          upload: false',
   )
   assert.equal(analyze('.github/workflows/source-security.yml', noUpload).length, 1)
 })
@@ -114,6 +137,23 @@ test('rejects every run step, github context export, and checkout credential per
     '',
   )
   assert.equal(analyze('.github/workflows/source-security.yml', persisted).length, 1)
+})
+
+test('rejects skipped analysis, wrong languages, custom runners, containers, and extra context', () => {
+  const permissions = '      actions: read\n      contents: read\n      security-events: write'
+  const valid = workflow(permissions)
+  const variants = [
+    valid.replace('      - name: Analyze source', '      - name: Analyze source\n        if: false'),
+    valid.replace('    permissions:', '    continue-on-error: true\n    permissions:'),
+    valid.replace('          - language: go', '          - language: actions'),
+    valid.replace('permissions: {}', 'env:\n  CTX: \${{ toJSON(github) }}\npermissions: {}'),
+    valid.replace('          category: /language:\${{ matrix.language }}', '          category: \${{ toJSON(github) }}'),
+    valid.replace('    runs-on: ubuntu-24.04', '    runs-on: self-hosted'),
+    valid.replace('    runs-on: ubuntu-24.04', '    runs-on: ubuntu-24.04\n    container: attacker/image:latest'),
+  ]
+  for (const variant of variants) {
+    assert.equal(analyze('.github/workflows/source-security.yml', variant).length, 1)
+  }
 })
 
 test('continues to reject pull_request_target, secrets, and network-to-shell', () => {
