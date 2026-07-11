@@ -478,6 +478,7 @@ jobs:
             test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
             gh release edit "v$VERSION" \
               --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
               --title "OpenCloud File Archiver $VERSION" \
               --notes-file "$notes"
             gh release upload "v$VERSION" \
