@@ -478,6 +478,7 @@ jobs:
             test "$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
             gh release edit "v$VERSION" \
               --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
               --title "OpenCloud File Archiver $VERSION" \
               --notes-file "$notes"
             gh release upload "v$VERSION" \
@@ -514,7 +515,9 @@ jobs:
           CANDIDATE_REF: ${{ needs.backend-candidate.outputs.candidate_ref }}
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          if existing_digest=$(docker buildx imagetools inspect "$IMAGE_NAME:$VERSION" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"'); then
+          if existing_json=$(docker buildx imagetools inspect "$IMAGE_NAME:$VERSION" --format '{{json .Manifest.Digest}}' 2>/dev/null); then
+            existing_digest=${existing_json#\"}
+            existing_digest=${existing_digest%\"}
             test "$existing_digest" = "${{ needs.backend-candidate.outputs.digest }}" || {
               echo "::error::$IMAGE_NAME:$VERSION already points to a different digest"
               exit 1
@@ -522,7 +525,9 @@ jobs:
           else
             docker buildx imagetools create --tag "$IMAGE_NAME:$VERSION" "$CANDIDATE_REF"
           fi
-          published_digest=$(docker buildx imagetools inspect "$IMAGE_NAME:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          published_json=$(docker buildx imagetools inspect "$IMAGE_NAME:$VERSION" --format '{{json .Manifest.Digest}}')
+          published_digest=${published_json#\"}
+          published_digest=${published_digest%\"}
           test "$published_digest" = "${{ needs.backend-candidate.outputs.digest }}"
           docker buildx imagetools create --tag "$IMAGE_NAME:latest" "$CANDIDATE_REF"
 
