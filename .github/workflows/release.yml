@@ -53,6 +53,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      release_needed: ${{ steps.plan.outputs.release_needed }}
       source_sha: ${{ steps.plan.outputs.source_sha }}
       version: ${{ steps.plan.outputs.version }}
       candidate_tag: ${{ steps.plan.outputs.candidate_tag }}
@@ -95,10 +96,19 @@ jobs:
           source_sha=$main_sha
           git checkout --detach "$source_sha"
 
+          case "$RELEASE_KIND" in weekly|urgent|manual) ;; *) echo "::error::Unknown release kind"; exit 1;; esac
+          latest_tag=$(git tag --list --sort=-version:refname | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }')
+          if [ "$RELEASE_KIND" = weekly ] && [ -n "$latest_tag" ] && \
+             [ "$(git rev-list -n 1 "$latest_tag")" = "$source_sha" ]; then
+            echo "::notice::Current main is already published by $latest_tag; this queued weekly release is a no-op"
+            echo "release_needed=false" >> "$GITHUB_OUTPUT"
+            echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ -n "$REQUESTED_VERSION" ]; then
             version=$REQUESTED_VERSION
           else
-            latest_tag=$(git tag --list --sort=-version:refname | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { print; exit }')
             if [ -z "$latest_tag" ]; then
               version=$(node -p "require('./web-app-file-archiver/package.json').version")
             else
@@ -114,8 +124,7 @@ jobs:
             echo "::error::Tag v$version already exists"
             exit 1
           fi
-          case "$RELEASE_KIND" in weekly|urgent|manual) ;; *) echo "::error::Unknown release kind"; exit 1;; esac
-
+          echo "release_needed=true" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "candidate_tag=${IMAGE_NAME}:candidate-$source_sha" >> "$GITHUB_OUTPUT"
@@ -127,6 +136,7 @@ jobs:
   frontend-artifact:
     name: Build frontend release ZIP once
     needs: plan
+    if: needs.plan.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -183,6 +193,7 @@ jobs:
   backend-candidate:
     name: Build multiarch backend candidate once
     needs: plan
+    if: needs.plan.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -253,6 +264,7 @@ jobs:
   full-acceptance:
     name: Full acceptance / exact release artifacts
     needs: [plan, frontend-artifact, backend-candidate]
+    if: needs.plan.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -347,6 +359,7 @@ jobs:
   release-preflight:
     name: Recheck compatibility and dependency lifecycle before publication
     needs: [plan, full-acceptance]
+    if: needs.plan.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -413,6 +426,7 @@ jobs:
   publish:
     name: Retag accepted manifest and publish release
     needs: [plan, frontend-artifact, backend-candidate, full-acceptance, release-preflight]
+    if: needs.plan.outputs.release_needed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write

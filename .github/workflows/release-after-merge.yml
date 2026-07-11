@@ -1,4 +1,4 @@
-name: Immediate accepted release after urgent security merge
+name: Accepted release after maintenance or security merge
 
 on:
   pull_request:
@@ -9,11 +9,11 @@ permissions:
   packages: write
 
 concurrency:
-  group: urgent-release-dispatch
+  group: post-merge-release-dispatch
   cancel-in-progress: false
 
 jobs:
-  release:
+  urgent-release:
     if: >-
       github.event.pull_request.merged == true &&
       (contains(github.event.pull_request.labels.*.name, 'security:critical') ||
@@ -23,3 +23,15 @@ jobs:
       source_sha: ${{ github.event.pull_request.merge_commit_sha }}
       requested_version: ""
       release_kind: urgent
+
+  weekly-release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release:weekly') &&
+      !contains(github.event.pull_request.labels.*.name, 'security:critical') &&
+      !contains(github.event.pull_request.labels.*.name, 'security:high')
+    uses: ./.github/workflows/release.yml
+    with:
+      source_sha: ${{ github.event.pull_request.merge_commit_sha }}
+      requested_version: ""
+      release_kind: weekly

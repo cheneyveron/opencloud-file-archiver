@@ -55,8 +55,11 @@ a substitute acceptance process.
 
 The repository has one cron in `weekly-maintenance.yml`. It runs Renovate, audits open PRs and
 dependency lifecycle status, reports blockers, and compares main HEAD with the latest `vX.Y.Z`
-tag. It updates one rolling blocker issue instead of creating weekly duplicates. When main changed,
-it invokes the full acceptance workflow and creates the next patch release.
+tag. It updates one rolling blocker issue instead of creating weekly duplicates. When no update PR
+is pending and main changed, it invokes the full acceptance workflow itself. Otherwise the accepted
+`release:weekly` PR merge invokes that same release workflow, so the weekly batch is published after
+its required checks rather than waiting for the next Monday. Duplicate queued weekly releases become
+no-ops when the latest version tag already points at current main.
 
 A merged PR labeled `security:high` or `security:critical` invokes the same workflow immediately.
 Maintainers can also dispatch `release.yml` with `release_kind=urgent`. Urgency never skips full
