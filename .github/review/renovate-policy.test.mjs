@@ -51,6 +51,7 @@ test('breaking classifications default to roadmap review regardless of update ty
 
   assert.deepEqual(breaking.matchJsonata, ['isBreaking = true'])
   assert.equal(breaking.matchUpdateTypes, undefined)
+  assert.equal(breaking.groupName, null)
   assert.equal(breaking.automerge, false)
   assert.ok(breaking.labels.includes('roadmap:required'))
 })
@@ -88,6 +89,16 @@ test('runtime and build toolchains are isolated from application dependencies', 
     assert.ok(toolchains.matchPackageNames.includes(dependency))
   }
   assert.equal(toolchains.groupSlug, 'runtime-build-toolchain-compatibility')
+})
+
+test('Go compiler releases bypass stability delay but retain the normal gates', () => {
+  const compiler = rule(
+    'Go compiler releases bypass stability delay because reachable standard-library fixes are release blockers',
+  )
+  assert.deepEqual(compiler.matchDatasources, ['docker'])
+  assert.deepEqual(compiler.matchPackageNames, ['golang'])
+  assert.equal(compiler.minimumReleaseAge, '0 days')
+  assert.equal(compiler.automerge, undefined)
 })
 
 test('prerelease baselines fail closed into roadmap review', () => {

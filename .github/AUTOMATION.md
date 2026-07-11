@@ -126,9 +126,11 @@ runtime and build-toolchain updates use a separate compatibility PR. Duplicate q
 urgent releases become no-ops when the latest version tag already points at current main.
 
 The locked Go compiler scalar, `golang` builder image, and Dockerfile base all resolve through the
-same Docker-tag lookup. This deliberately follows the newest available, stability-aged image rather
-than combining a newer scalar release with an older image. `go_module_minimum` remains owned by the
-tracked OpenCloud stable release and is not changed by compiler refreshes.
+same Docker-tag lookup rather than combining a newer scalar release with an older image. Go compiler
+releases bypass the general stability delay because `govulncheck` treats reachable standard-library
+findings as release blockers; the full compatibility and exact-artifact gates still apply before
+merge and publication. `go_module_minimum` remains owned by the tracked OpenCloud stable release and
+is not changed by compiler refreshes.
 
 A merged PR labeled `security:high` or `security:critical` invokes the same workflow immediately.
 Maintainers can also dispatch `release.yml` with `release_kind=urgent`. Urgency never skips full

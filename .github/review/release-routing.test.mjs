@@ -40,3 +40,7 @@ test('every queued formal release resolves current main and covered revisions be
   assert.match(release, /Main advanced after dispatch; accepting and releasing current main HEAD/)
   assert.match(release, /this queued \$RELEASE_KIND release is a no-op/)
 })
+
+test('optional BuildKit cache writes cannot fail a formal release', () => {
+  assert.doesNotMatch(release, /cache-to:\s*type=gha/)
+})
