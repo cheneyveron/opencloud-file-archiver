@@ -263,8 +263,6 @@ jobs:
             org.opencontainers.image.version=${{ needs.plan.outputs.version }}
             org.opencontainers.image.revision=${{ needs.plan.outputs.source_sha }}
             org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/${{ needs.plan.outputs.source_sha }}/INSTALL.md
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Freeze candidate by digest
         id: reference

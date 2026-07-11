@@ -189,6 +189,16 @@
       "groupSlug": "runtime-build-toolchain-compatibility"
     },
     {
+      "description": "Go compiler releases bypass stability delay because reachable standard-library fixes are release blockers",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "golang"
+      ],
+      "minimumReleaseAge": "0 days"
+    },
+    {
       "description": "Keep the OpenCloud release marker and exact container digest in one PR",
       "matchPackageNames": [
         "opencloud-eu/opencloud",
@@ -225,6 +235,7 @@
         "dependencies",
         "roadmap:required"
       ],
+      "groupName": null,
       "automerge": false
     },
     {

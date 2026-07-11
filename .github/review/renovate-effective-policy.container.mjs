@@ -161,6 +161,47 @@ test('ordinary GitHub Actions updates join the reviewed toolchain batch', async 
   assert.ok(combinedLabels(result).has('review:automation'))
 })
 
+test('Go compiler security patches bypass age but never bypass acceptance', async () => {
+  const result = await applyPackageRules({
+    ...config,
+    manager: 'dockerfile',
+    datasource: 'docker',
+    depName: 'golang',
+    packageName: 'golang',
+    packageFile: 'file-archiver-service/Dockerfile',
+    currentVersion: '1.26.4',
+    newVersion: '1.26.5',
+    updateType: 'patch',
+    isBreaking: false,
+    isVulnerabilityAlert: false
+  })
+  assert.equal(result.minimumReleaseAge, '0 days')
+  assert.equal(result.groupSlug, 'runtime-build-toolchain-compatibility')
+  assert.equal(result.automerge, true)
+  assert.ok(combinedLabels(result).has('release:weekly'))
+})
+
+test('a breaking Go compiler release remains an isolated roadmap decision', async () => {
+  const result = await applyPackageRules({
+    ...config,
+    manager: 'dockerfile',
+    datasource: 'docker',
+    depName: 'golang',
+    packageName: 'golang',
+    packageFile: 'file-archiver-service/Dockerfile',
+    currentVersion: '1.26.5',
+    newVersion: '2.0.0',
+    updateType: 'major',
+    isBreaking: true,
+    isVulnerabilityAlert: false
+  })
+  assert.equal(result.minimumReleaseAge, '0 days')
+  assert.equal(result.groupName, null)
+  assert.equal(result.automerge, false)
+  assert.ok(combinedLabels(result).has('roadmap:required'))
+  assert.ok(!combinedLabels(result).has('release:weekly'))
+})
+
 test('Go compiler scalar and both image refs share one Docker lookup', async () => {
   const lock = await readFile('compatibility.lock.yaml', 'utf8')
   const dockerfile = await readFile('file-archiver-service/Dockerfile', 'utf8')
