@@ -113,8 +113,10 @@ const automationBoundaries = changedFiles.filter((file) =>
   file === 'renovate.json' ||
   file === 'compatibility.lock.yaml' ||
   file === 'scripts/acceptance.sh' ||
+  file === 'scripts/app-store-entry.mjs' ||
   file === 'scripts/package-web.go' ||
   file.startsWith('tests/e2e/') ||
+  file === 'web-app-file-archiver/src/manifest.json' ||
   file.startsWith('web-app-file-archiver/tests/e2e/')
 )
 if (automationBoundaries.length > 0 && !labels.has('review:automation')) {

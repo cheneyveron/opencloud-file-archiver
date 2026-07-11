@@ -1,5 +1,16 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import {
+  allGoModuleNames,
+  deprecatedPnpmPackages,
+  directGoModuleNames,
+  lockedDirectPnpmVersions,
+  pnpmUpdateSummary,
+  requiredCheckSummary,
+  replacementLeadLabel,
+  safeReportText,
+  suggestedReplacementNames
+} from './weekly-report-lib.mjs'
 
 const outputPath = process.argv[2] || 'weekly-maintenance-report.md'
 const repository = process.env.GITHUB_REPOSITORY
@@ -12,6 +23,7 @@ const run = (command, args, options = {}) => {
     return execFileSync(command, args, {
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
+      timeout: 60_000,
       ...execOptions
     }).trim()
   } catch (error) {
@@ -39,6 +51,120 @@ const lockedOpenCloud = compatibility.match(/stable_release: "([^"]+)"/)?.[1] ||
 const approvedReplacements = new Map(
   [...compatibility.matchAll(/^  "([^"]+)":\s*"([^"]+)"\s*$/gm)].map((match) => [match[1], match[2]])
 )
+
+const isNpmPackageName = (value) => /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/i.test(value)
+const isGitHubRepository = (value) => /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(value)
+
+const npmCandidate = (name, reason) => {
+  if (!isNpmPackageName(name)) return null
+  const info = json('npm', ['view', name, 'version', 'deprecated', 'repository.url', '--json'])
+  const version = typeof info === 'string' ? info : info?.version
+  if (info?.error || !version || info?.deprecated) return null
+  return {
+    name,
+    version: String(version),
+    url: `https://www.npmjs.com/package/${encodeURIComponent(name)}`,
+    reason
+  }
+}
+
+const discoverNpmCandidates = (dependency, note, approved) => {
+  const names = []
+  if (approved && isNpmPackageName(approved)) names.push({ name: approved, reason: 'approved replacement' })
+  for (const name of suggestedReplacementNames(note, dependency)) {
+    if (isNpmPackageName(name)) names.push({ name, reason: 'explicit deprecation hint' })
+  }
+
+  const search = json('npm', ['search', dependency, '--json', '--searchlimit', '10'])
+  if (search?.error) return { candidates: [], failure: `${dependency}: npm replacement search failed` }
+  if (Array.isArray(search)) {
+    const tokens = dependency.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 4 && !['node', 'package'].includes(token))
+    for (const item of search) {
+      const searchable = `${item?.name || ''} ${item?.description || ''}`.toLowerCase().replace(/[^a-z0-9]+/g, '')
+      const relevant = tokens.length === 0 || tokens.some((token) => searchable.includes(token.replace(/[^a-z0-9]+/g, '')))
+      if (relevant && item?.name && item.name !== dependency) names.push({ name: item.name, reason: 'untrusted registry search lead' })
+    }
+  }
+
+  const candidates = []
+  const seen = new Set([dependency.toLowerCase()])
+  for (const entry of names) {
+    const normalized = entry.name.toLowerCase()
+    if (seen.has(normalized)) continue
+    seen.add(normalized)
+    const candidate = npmCandidate(entry.name, entry.reason)
+    if (candidate) candidates.push(candidate)
+    if (candidates.length === 3) break
+  }
+  return { candidates, failure: '' }
+}
+
+const githubCandidate = (info, reason) => {
+  if (!info?.full_name || info.archived || info.disabled || !info.default_branch) return null
+  const pushedAt = Date.parse(info.pushed_at || '')
+  if (Number.isFinite(pushedAt) && pushedAt < Date.now() - 366 * 24 * 60 * 60 * 1000) return null
+  const release = json('gh', ['api', `repos/${info.full_name}/releases/latest`])
+  let version = release?.tag_name || ''
+  if (!version) {
+    const tags = json('gh', ['api', `repos/${info.full_name}/tags?per_page=1`])
+    if (Array.isArray(tags)) version = tags[0]?.name || ''
+  }
+  return {
+    name: `github.com/${info.full_name}`,
+    version: version || `active ${info.default_branch}`,
+    url: info.html_url,
+    reason
+  }
+}
+
+const discoverGitHubCandidates = (dependency, note, approved) => {
+  const original = dependency.replace(/^github\.com\//, '').replace(/\/v\d+$/, '')
+  if (!isGitHubRepository(original)) return { candidates: [], failure: '' }
+  const candidates = []
+  const seen = new Set([original.toLowerCase()])
+
+  const addRepository = (name, reason) => {
+    const normalized = String(name || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/i, '')
+    if (!isGitHubRepository(normalized) || seen.has(normalized.toLowerCase()) || candidates.length >= 3) return
+    seen.add(normalized.toLowerCase())
+    const info = json('gh', ['api', `repos/${normalized}`])
+    if (!info?.error) {
+      const candidate = githubCandidate(info, reason)
+      if (candidate) candidates.push(candidate)
+    }
+  }
+
+  if (approved) addRepository(approved.replace(/^github\.com\//, ''), 'approved replacement')
+  for (const name of suggestedReplacementNames(note, original)) addRepository(name, 'explicit lifecycle hint')
+
+  const forks = json('gh', ['api', '--method', 'GET', `repos/${original}/forks`, '-f', 'sort=stargazers', '-f', 'per_page=10'])
+  if (Array.isArray(forks)) {
+    for (const info of forks) {
+      if (candidates.length >= 3 || seen.has(String(info?.full_name || '').toLowerCase())) continue
+      seen.add(String(info.full_name || '').toLowerCase())
+      const candidate = githubCandidate(info, 'untrusted heuristic active fork')
+      if (candidate) candidates.push(candidate)
+    }
+  }
+
+  if (candidates.length < 3) {
+    const basename = original.split('/').at(-1)
+    const search = json('gh', [
+      'api', '--method', 'GET', 'search/repositories',
+      '-f', `q=${basename} in:name,description archived:false fork:false`,
+      '-f', 'sort=stars', '-f', 'order=desc', '-f', 'per_page=10'
+    ])
+    if (search?.error) return { candidates, failure: `${dependency}: GitHub replacement search failed` }
+    for (const info of search?.items || []) {
+      if (candidates.length >= 3 || seen.has(String(info?.full_name || '').toLowerCase())) continue
+      seen.add(String(info.full_name || '').toLowerCase())
+      const candidate = githubCandidate(info, 'untrusted heuristic repository search lead')
+      if (candidate) candidates.push(candidate)
+    }
+  }
+
+  return { candidates, failure: '' }
+}
 
 const latestOpenCloud = json('gh', ['api', 'repos/opencloud-eu/opencloud/releases/latest'])
 const latestTag = latestOpenCloud?.tag_name || 'lookup-failed'
@@ -105,7 +231,7 @@ if (upstreamNode !== 'lookup-failed' && upstreamNode !== lockedNode) {
 
 const pullRequests = releasePreflight ? [] : json('gh', [
   'pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100',
-  '--json', 'number,title,url,isDraft,updatedAt,labels,author'
+  '--json', 'number,title,url,isDraft,updatedAt,labels,author,headRefName,statusCheckRollup'
 ])
 if (!releasePreflight && Array.isArray(pullRequests)) {
   const pendingReleasePRs = pullRequests.filter((pr) =>
@@ -113,6 +239,16 @@ if (!releasePreflight && Array.isArray(pullRequests)) {
   )
   if (pendingReleasePRs.length > 0) {
     configurationBlockers.push(`Release-bearing PRs are still open: ${pendingReleasePRs.map((pr) => `#${pr.number}`).join(', ')}`)
+  }
+  const unroutedDependencyPRs = pullRequests.filter((pr) => {
+    const labels = new Set(pr.labels.map(({ name }) => name))
+    const automatedBranch = /^(?:renovate|dependabot)\//.test(pr.headRefName || '')
+    const routed = ['release:weekly', 'security:high', 'security:critical', 'roadmap:required']
+      .some((label) => labels.has(label))
+    return automatedBranch && labels.has('dependencies') && !routed
+  })
+  if (unroutedDependencyPRs.length > 0) {
+    configurationBlockers.push(`Automated dependency PRs have no release or roadmap route: ${unroutedDependencyPRs.map((pr) => `#${pr.number}`).join(', ')}`)
   }
 } else if (!releasePreflight) {
   configurationBlockers.push('Open pull requests could not be enumerated')
@@ -122,14 +258,14 @@ const goMod = readFileSync('file-archiver-service/go.mod', 'utf8')
 const lockedGoTools = [...compatibility.matchAll(
   /# renovate: datasource=go depName=(\S+)\n\s+[a-z0-9_]+: "([^"]+)"/g
 )].map((match) => ({ module: match[1], version: match[2] }))
-const goModuleQueries = new Map(
-  [...goMod.matchAll(/^\s*([^\s]+)\s+v[^\s]+/gm)].map((match) => [match[1], match[1]])
-)
+const directGoModules = new Set(directGoModuleNames(goMod))
+const goModuleQueries = new Map(allGoModuleNames(goMod).map((module) => [module, module]))
 for (const { module, version } of lockedGoTools) {
   goModuleQueries.set(module, `${module}@${version}`)
 }
 const goModules = [...goModuleQueries.keys()]
 const packageJson = JSON.parse(readFileSync('web-app-file-archiver/package.json', 'utf8'))
+const pnpmLockfile = readFileSync('web-app-file-archiver/pnpm-lock.yaml', 'utf8')
 const npmDependencies = Object.keys({
   ...(packageJson.dependencies || {}),
   ...(packageJson.devDependencies || {})
@@ -170,6 +306,10 @@ for (const repo of githubRepositories) {
   }
 }
 
+const transitiveDeprecatedNpm = deprecatedPnpmPackages(pnpmLockfile)
+  .filter(({ dependency }) => !npmDependencies.includes(dependency))
+const replacementDiscoveryNotes = []
+
 const directGoUpdates = []
 for (const module of goModules) {
   const info = json('go', ['list', '-m', '-u', '-json', goModuleQueries.get(module)], {
@@ -179,7 +319,7 @@ for (const module of goModules) {
     lifecycleFailures.push(`${module}: Go module lookup failed`)
     continue
   }
-  if (info?.Update?.Version) {
+  if (info?.Update?.Version && (directGoModules.has(module) || lockedGoTools.some((tool) => tool.module === module))) {
     directGoUpdates.push(`${module}: ${info.Version} → ${info.Update.Version}`)
   }
   if (info?.Retracted?.length) {
@@ -188,7 +328,7 @@ for (const module of goModules) {
       url: '',
       archived: false,
       disabled: false,
-      replacement: approvedReplacements.get(module) || '',
+      replacement: approvedReplacements.get(module) || approvedReplacements.get(module.replace(/\/v\d+$/, '')) || '',
       note: `current version retracted: ${info.Retracted.join('; ')}`
     })
   }
@@ -198,14 +338,14 @@ for (const module of goModules) {
       url: '',
       archived: false,
       disabled: false,
-      replacement: approvedReplacements.get(module) || '',
+      replacement: approvedReplacements.get(module) || approvedReplacements.get(module.replace(/\/v\d+$/, '')) || '',
       note: `module deprecated: ${info.Deprecated}`
     })
   }
 }
 
 const deprecatedNpm = []
-const npmUpdates = []
+let npmUpdates = []
 const outdatedInfo = json('pnpm', ['outdated', '--format', 'json'], {
   cwd: 'web-app-file-archiver',
   acceptStdoutOnFailure: true
@@ -213,32 +353,12 @@ const outdatedInfo = json('pnpm', ['outdated', '--format', 'json'], {
 if (outdatedInfo?.error) {
   lifecycleFailures.push('pnpm outdated registry resolution failed')
 } else if (outdatedInfo && typeof outdatedInfo === 'object') {
-  for (const [dependency, info] of Object.entries(outdatedInfo)) {
-    npmUpdates.push(`${dependency}: ${info.current || 'unknown'} → ${info.latest || 'unknown'}`)
-  }
+  const summary = pnpmUpdateSummary(outdatedInfo)
+  npmUpdates = summary.updates
+  lifecycleFailures.push(...summary.failures)
 }
 
-const installedInfo = json(
-  'pnpm',
-  ['list', '--depth', '0', '--json', '--lockfile-only'],
-  { cwd: 'web-app-file-archiver' }
-)
-const resolvedNpmVersions = new Map()
-if (Array.isArray(installedInfo) && installedInfo.length > 0) {
-  for (const project of installedInfo) {
-    const directDependencies = {
-      ...(project.dependencies || {}),
-      ...(project.devDependencies || {}),
-      ...(project.optionalDependencies || {})
-    }
-    for (const [dependency, info] of Object.entries(directDependencies)) {
-      const version = typeof info === 'string' ? info : info?.version
-      if (version) resolvedNpmVersions.set(dependency, version)
-    }
-  }
-} else {
-  lifecycleFailures.push('pnpm could not enumerate locked direct dependency versions')
-}
+const resolvedNpmVersions = lockedDirectPnpmVersions(pnpmLockfile)
 
 for (const dependency of npmDependencies) {
   const resolvedVersion = resolvedNpmVersions.get(dependency)
@@ -257,6 +377,27 @@ for (const dependency of npmDependencies) {
       replacement: approvedReplacements.get(dependency) || ''
     })
   }
+}
+
+for (const item of archived) {
+  const discovery = item.dependency.startsWith('github.com/')
+    ? discoverGitHubCandidates(item.dependency, item.note || '', item.replacement)
+    : { candidates: [], failure: '' }
+  item.candidates = discovery.candidates
+  if (discovery.failure) lifecycleFailures.push(discovery.failure)
+}
+for (const item of deprecatedNpm) {
+  const discovery = discoverNpmCandidates(item.dependency, item.note, item.replacement)
+  item.candidates = discovery.candidates
+  if (discovery.failure) lifecycleFailures.push(discovery.failure)
+}
+for (const item of transitiveDeprecatedNpm) {
+  const samePackage = npmCandidate(item.dependency, 'newer non-deprecated release of the same package')
+  const discovery = samePackage && samePackage.version !== item.version
+    ? { candidates: [samePackage], failure: '' }
+    : discoverNpmCandidates(item.dependency, item.note, '')
+  item.candidates = discovery.candidates
+  if (discovery.failure) replacementDiscoveryNotes.push(discovery.failure)
 }
 
 const unresolved = [
@@ -287,7 +428,8 @@ const lines = [
 if (Array.isArray(pullRequests) && pullRequests.length > 0) {
   for (const pr of pullRequests) {
     const labels = pr.labels.map(({ name }) => name).join(', ') || 'none'
-    lines.push(`- [#${pr.number} ${pr.title}](${pr.url}) — labels: ${labels}; draft: ${pr.isDraft}`)
+    const checks = requiredCheckSummary(pr.statusCheckRollup)
+    lines.push(`- [#${pr.number} ${pr.title}](${pr.url}) — labels: ${labels}; draft: ${pr.isDraft}; ${checks}`)
   }
 } else {
   lines.push('- None')
@@ -300,13 +442,43 @@ if (directGoUpdates.length + npmUpdates.length === 0) lines.push('- None detecte
 lines.push('', '## Archived, disabled, retracted, or deprecated dependencies', '')
 for (const item of [...archived, ...deprecatedNpm]) {
   const replacement = item.replacement
-    ? `approved replacement: ${item.replacement}; migration is still required before release`
-    : '**no approved replacement; maintainer decision required**'
+    ? `approved replacement: ${safeReportText(item.replacement)}`
+    : 'no approved replacement'
   const link = item.url ? `[${item.dependency}](${item.url})` : item.dependency
   const version = item.version ? `@${item.version}` : ''
-  lines.push(`- ${link}${version}: ${item.note || (item.archived ? 'repository archived' : 'repository disabled')} — ${replacement}`)
+  const note = safeReportText(item.note || (item.archived ? 'repository archived' : 'repository disabled'))
+  lines.push(`- ${link}${version}: ${note} — ${replacement}`)
+  if (item.candidates?.length) {
+    for (const candidate of item.candidates) {
+      lines.push(`  - ${replacementLeadLabel(candidate.reason)} (${safeReportText(candidate.reason)}): [${safeReportText(candidate.name)}](${candidate.url}) @ ${safeReportText(candidate.version)}`)
+    }
+  } else {
+    lines.push('  - **No viable replacement candidate was found automatically.**')
+  }
+  lines.push('  - Migration remains blocked until a replacement is approved, implemented, and passes full acceptance.')
 }
 if (archived.length + deprecatedNpm.length === 0) lines.push('- None detected')
+
+lines.push('', '## Deprecated transitive npm packages', '')
+if (transitiveDeprecatedNpm.length > 0) {
+  lines.push('- These are not shipped as declared direct dependencies. They are reported for parent-package maintenance; vulnerability reachability is enforced separately by `pnpm audit` and release scanning.')
+  for (const item of transitiveDeprecatedNpm) {
+    lines.push(`- ${safeReportText(item.dependency)}@${safeReportText(item.version)}: ${safeReportText(item.note)}`)
+    if (item.candidates?.length) {
+      for (const candidate of item.candidates) {
+        lines.push(`  - ${replacementLeadLabel(candidate.reason)} (${safeReportText(candidate.reason)}): [${safeReportText(candidate.name)}](${candidate.url}) @ ${safeReportText(candidate.version)}`)
+      }
+    } else {
+      lines.push('  - No viable replacement candidate was found automatically; update or replace the owning direct dependency.')
+    }
+  }
+} else {
+  lines.push('- None detected')
+}
+
+if (replacementDiscoveryNotes.length > 0) {
+  lines.push('', '## Incomplete transitive replacement discovery', '', ...replacementDiscoveryNotes.map((item) => `- ${safeReportText(item)}`))
+}
 
 lines.push('', '## Automation configuration blockers', '')
 if (configurationBlockers.length > 0) {
@@ -329,7 +501,8 @@ lines.push(
   '- Non-breaking dependency updates are grouped into the weekly release PR by Renovate.',
   '- Major/breaking updates stay manual and require a roadmap decision.',
   '- High/Critical runtime fixes use trusted severity labels and release immediately after merge and full acceptance.',
-  '- Any archived/deprecated/retracted dependency blocks automatic release until migrated; a missing approved replacement also requires a maintainer decision.'
+  '- Any direct or locked archived/deprecated/retracted dependency blocks automatic release until migrated; a missing approved replacement also requires a maintainer decision.',
+  '- Deprecated transitive npm packages are reported with clearly classified verified candidates or untrusted search leads; they block only when vulnerability or acceptance gates find reachable risk.'
 )
 
 writeFileSync(outputPath, `${lines.join('\n')}\n`)

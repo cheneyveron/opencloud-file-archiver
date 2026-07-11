@@ -19,13 +19,18 @@ import (
 )
 
 const (
-	appDirectory       = "file-archiver"
-	maxArchiveEntries  = 100_000
-	maxUncompressedZIP = int64(1 << 30)
+	appDirectory               = "file-archiver"
+	backendInstallationURL     = "https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md"
+	requiredBackendDescription = "Requires the companion file-archiver backend service. Install it before using this extension: " + backendInstallationURL
+	maxArchiveEntries          = 100_000
+	maxUncompressedZIP         = int64(1 << 30)
 )
 
 type manifest struct {
-	Entrypoint string `json:"entrypoint"`
+	Entrypoint          string `json:"entrypoint"`
+	Description         string `json:"description"`
+	RequiresBackend     bool   `json:"requiresBackend"`
+	BackendInstallation string `json:"backendInstallation"`
 }
 
 func main() {
@@ -284,6 +289,10 @@ func validateAppDirectory(directory string) error {
 	var parsed manifest
 	if err := json.Unmarshal(contents, &parsed); err != nil {
 		return fmt.Errorf("parse manifest.json: %w", err)
+	}
+	if parsed.Description != requiredBackendDescription || !parsed.RequiresBackend ||
+		parsed.BackendInstallation != backendInstallationURL {
+		return errors.New("manifest description must disclose the required backend service and link INSTALL.md")
 	}
 	entrypoint := path.Clean(parsed.Entrypoint)
 	if parsed.Entrypoint == "" || path.IsAbs(entrypoint) || entrypoint == ".." || strings.HasPrefix(entrypoint, "../") {

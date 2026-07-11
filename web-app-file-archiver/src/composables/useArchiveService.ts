@@ -130,7 +130,7 @@ export function useArchiveService(applicationConfig: ArchiveServiceConfig = {}) 
   function unavailableError() {
     return new ArchiveServiceError(
       $gettext(
-        'The File Archiver backend is not installed, is unreachable, or returned an incompatible response. Contact your administrator or follow the backend installation guide.'
+        'The File Archiver backend is not installed, is unreachable, or returned an incompatible response. Contact your administrator or follow the backend installation guide: https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md'
       ),
       { code: 'ARCHIVE_BACKEND_UNAVAILABLE' }
     )

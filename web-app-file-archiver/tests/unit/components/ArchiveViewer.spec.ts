@@ -206,7 +206,7 @@ describe('ArchiveViewer', () => {
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('The File Archiver backend is not installed')
       expect(wrapper.text()).toContain(
-        'Contact your administrator or follow the backend installation guide.'
+        'Contact your administrator or follow the backend installation guide: https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md'
       )
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)

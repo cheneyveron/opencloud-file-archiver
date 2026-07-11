@@ -5,8 +5,10 @@
 /compatibility.lock.yaml @cheneyveron
 /file-archiver-service/Dockerfile @cheneyveron
 /scripts/acceptance.sh @cheneyveron
+/scripts/app-store-entry.mjs @cheneyveron
 /scripts/package-web.go @cheneyveron
 /tests/e2e/ @cheneyveron
+/web-app-file-archiver/src/manifest.json @cheneyveron
 /web-app-file-archiver/tests/e2e/ @cheneyveron
 /INSTALL.md @cheneyveron
 /ROADMAP.md @cheneyveron

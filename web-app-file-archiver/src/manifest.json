@@ -1,0 +1,6 @@
+{
+  "name": "File Archiver",
+  "description": "Requires the companion file-archiver backend service. Install it before using this extension: https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md",
+  "requiresBackend": true,
+  "backendInstallation": "https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md"
+}

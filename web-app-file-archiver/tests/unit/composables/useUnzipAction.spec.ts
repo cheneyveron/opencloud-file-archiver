@@ -263,7 +263,7 @@ describe('unzip action', () => {
             const error = vi.mocked(showErrorMessage).mock.calls[0][0].errors[0] as Error
             expect(error.message).toContain('The File Archiver backend is not installed')
             expect(error.message).toContain(
-              'Contact your administrator or follow the backend installation guide.'
+              'Contact your administrator or follow the backend installation guide:'
             )
           })
           expect(fetchMock).toHaveBeenCalledTimes(1)

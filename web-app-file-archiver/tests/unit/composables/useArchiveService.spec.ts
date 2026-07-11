@@ -95,7 +95,7 @@ describe('archive service', () => {
       )
     })
     await expect(useArchiveService().requestJson('/api/jobs')).rejects.toThrow(
-      'Contact your administrator or follow the backend installation guide.'
+      'Contact your administrator or follow the backend installation guide:'
     )
 
     expect(fetchMock).toHaveBeenCalledTimes(1)

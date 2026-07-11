@@ -9,6 +9,7 @@
   ],
   "dependencyDashboard": true,
   "dependencyDashboardTitle": "Dependency and compatibility maintenance",
+  "gitAuthor": "Cheney Wang <i@cheney.wang>",
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 5,
   "prHourlyLimit": 0,
@@ -46,7 +47,7 @@
         "lockFileMaintenance"
       ],
       "matchJsonata": [
-        "isVulnerabilityAlert != true"
+        "$not(isVulnerabilityAlert = true) and isBreaking != true"
       ],
       "groupName": "weekly non-breaking maintenance",
       "groupSlug": "weekly-non-breaking-maintenance",
@@ -143,7 +144,7 @@
         "github-actions"
       ],
       "matchJsonata": [
-        "isVulnerabilityAlert != true"
+        "$not(isVulnerabilityAlert = true) and isBreaking != true"
       ],
       "labels": [
         "dependencies",
@@ -193,9 +194,9 @@
       "enabled": false
     },
     {
-      "description": "Breaking/major updates require roadmap analysis and never automerge",
-      "matchUpdateTypes": [
-        "major"
+      "description": "Every update Renovate classifies as breaking requires roadmap analysis and never automerges",
+      "matchJsonata": [
+        "isBreaking = true"
       ],
       "labels": [
         "dependencies",
@@ -204,12 +205,9 @@
       "automerge": false
     },
     {
-      "description": "Major High security fixes retain urgent identity but require manual impact review",
-      "matchUpdateTypes": [
-        "major"
-      ],
+      "description": "Breaking High security fixes retain urgent identity but require manual impact review",
       "matchJsonata": [
-        "isVulnerabilityAlert = true and vulnerabilitySeverity = 'HIGH'"
+        "isBreaking = true and isVulnerabilityAlert = true and vulnerabilitySeverity = 'HIGH'"
       ],
       "labels": [
         "dependencies",
@@ -219,12 +217,9 @@
       "automerge": false
     },
     {
-      "description": "Major Critical security fixes retain urgent identity but require manual impact review",
-      "matchUpdateTypes": [
-        "major"
-      ],
+      "description": "Breaking Critical security fixes retain urgent identity but require manual impact review",
       "matchJsonata": [
-        "isVulnerabilityAlert = true and vulnerabilitySeverity = 'CRITICAL'"
+        "isBreaking = true and isVulnerabilityAlert = true and vulnerabilitySeverity = 'CRITICAL'"
       ],
       "labels": [
         "dependencies",

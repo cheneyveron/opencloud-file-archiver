@@ -67,7 +67,7 @@ describe('archive jobs', () => {
     const { refreshJobs } = useArchiveJobs()
 
     await expect(refreshJobs()).rejects.toThrow(
-      'The File Archiver backend is not installed, is unreachable, or returned an incompatible response. Contact your administrator or follow the backend installation guide.'
+      'The File Archiver backend is not installed, is unreachable, or returned an incompatible response. Contact your administrator or follow the backend installation guide: https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md'
     )
   })
 })

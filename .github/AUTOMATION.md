@@ -39,7 +39,8 @@ approval: that would stop the weekly unattended path. Keep CODEOWNERS advisory, 
 of review threads, and set the required approval count to zero. Limit application of
 `review:automation`, `security:high`, and `security:critical` to trusted maintainers and the
 dedicated Renovate identity. Renovate adds `review:automation` only to its generated workflow-action
-and compatibility-lock updates; major updates still cannot automerge.
+and compatibility-lock updates; anything Renovate classifies as breaking still cannot automerge,
+including pre-release transitions that do not have a `major` update type.
 
 Never change PR validation to `pull_request_target`. It intentionally has read-only contents access,
 does not persist checkout credentials, and receives no repository secrets.
