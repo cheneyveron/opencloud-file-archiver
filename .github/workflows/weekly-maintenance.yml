@@ -26,7 +26,7 @@ jobs:
       blockers_clear: ${{ steps.report.outputs.blockers_clear }}
     steps:
       - name: Check out the trusted default branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -35,9 +35,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh label create "dependencies" --color 0366d6 --description "Automated dependency update" --force
+          gh label create "dependabot:normalized" --color 0e8a16 --description "Live PR metadata was verified by the trusted normalizer" --force
           gh label create "release:weekly" --color 1d76db --description "Merge triggers the weekly patch release" --force
+          gh label create "security:triage" --color fbca04 --description "Security severity or alert association needs review" --force
+          gh label create "security:low" --color c5def5 --description "Trusted Low-severity Dependabot security update" --force
+          gh label create "security:medium" --color e4e669 --description "Trusted Medium-severity Dependabot security update" --force
           gh label create "security:high" --color d93f0b --description "Trusted High-severity runtime security release" --force
           gh label create "security:critical" --color b60205 --description "Trusted Critical runtime security release" --force
+          gh label create "roadmap:required" --color 5319e7 --description "Breaking or unclassified update needs a roadmap decision" --force
           gh label create "review:automation" --color 5319e7 --description "Maintainer reviewed workflow or release automation changes" --force
           gh label create "maintenance:blocked" --color e4e669 --description "Automated maintenance or release is blocked" --force
 
@@ -78,13 +84,13 @@ jobs:
             "$RENOVATE_IMAGE"
 
       - name: Set up Go for module discovery
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: ${{ steps.lock.outputs.go_version }}
           cache-dependency-path: file-archiver-service/go.sum
 
       - name: Set up Node for registry discovery
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: ${{ steps.lock.outputs.node_version }}
 
@@ -106,7 +112,7 @@ jobs:
         run: cat weekly-maintenance-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload immutable report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: weekly-maintenance-report-${{ github.run_id }}
           path: weekly-maintenance-report.md

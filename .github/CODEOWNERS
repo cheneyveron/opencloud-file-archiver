@@ -1,4 +1,5 @@
-# Automation and release boundaries require an explicit repository-owner review.
+# Advisory ownership for sensitive boundaries; required automated checks and
+# trusted labels enforce the unattended merge path.
 /.github/ @cheneyveron
 /renovate.json @cheneyveron
 /compatibility.lock.yaml @cheneyveron

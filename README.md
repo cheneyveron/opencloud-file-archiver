@@ -1,5 +1,7 @@
 # OpenCloud File Archiver
 
+[![Pull request validation](https://github.com/cheneyveron/opencloud-file-archiver/actions/workflows/pr-validation.yml/badge.svg)](https://github.com/cheneyveron/opencloud-file-archiver/actions/workflows/pr-validation.yml)
+
 The File Archiver Plugin many OpenCloud users have been waiting for.
 
 OpenCloud can store, sync and share files beautifully. This plugin adds the missing archive

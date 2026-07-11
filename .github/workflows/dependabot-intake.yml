@@ -1,0 +1,24 @@
+name: Dependabot intake
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+# This untrusted-side workflow is deliberately only a signal for workflow_run.
+# It does not check out code, upload artifacts, use secrets, or hold write access.
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Read-only Dependabot candidate
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record the untrusted intake signal
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: echo "Dependabot candidate PR #${PR_NUMBER} at ${HEAD_SHA}"
