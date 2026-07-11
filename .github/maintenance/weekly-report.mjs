@@ -4,6 +4,8 @@ import {
   allGoModuleNames,
   deprecatedPnpmPackages,
   directGoModuleNames,
+  isAbandonedRenovatePullRequest,
+  isPendingReleasePullRequest,
   lockedDirectPnpmVersions,
   pnpmUpdateSummary,
   requiredCheckSummary,
@@ -234,9 +236,7 @@ const pullRequests = releasePreflight ? [] : json('gh', [
   '--json', 'number,title,url,isDraft,updatedAt,labels,author,headRefName,statusCheckRollup'
 ])
 if (!releasePreflight && Array.isArray(pullRequests)) {
-  const pendingReleasePRs = pullRequests.filter((pr) =>
-    pr.labels.some(({ name }) => ['release:weekly', 'security:high', 'security:critical'].includes(name))
-  )
+  const pendingReleasePRs = pullRequests.filter(isPendingReleasePullRequest)
   if (pendingReleasePRs.length > 0) {
     configurationBlockers.push(`Release-bearing PRs are still open: ${pendingReleasePRs.map((pr) => `#${pr.number}`).join(', ')}`)
   }
@@ -245,7 +245,7 @@ if (!releasePreflight && Array.isArray(pullRequests)) {
     const automatedBranch = /^(?:renovate|dependabot)\//.test(pr.headRefName || '')
     const routed = ['release:weekly', 'security:high', 'security:critical', 'roadmap:required']
       .some((label) => labels.has(label))
-    return automatedBranch && labels.has('dependencies') && !routed
+    return automatedBranch && !isAbandonedRenovatePullRequest(pr) && labels.has('dependencies') && !routed
   })
   if (unroutedDependencyPRs.length > 0) {
     configurationBlockers.push(`Automated dependency PRs have no release or roadmap route: ${unroutedDependencyPRs.map((pr) => `#${pr.number}`).join(', ')}`)

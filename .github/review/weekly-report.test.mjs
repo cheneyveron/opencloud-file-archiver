@@ -5,6 +5,8 @@ import {
   allGoModuleNames,
   deprecatedPnpmPackages,
   directGoModuleNames,
+  isAbandonedRenovatePullRequest,
+  isPendingReleasePullRequest,
   lockedDirectPnpmVersions,
   pnpmUpdateSummary,
   requiredCheckSummary,
@@ -126,4 +128,80 @@ test('PR reporting uses the newest result for duplicate required checks', () => 
   ])
   assert.match(summary, /Automated review \/ policy: success/)
   assert.match(summary, /Full acceptance \/ locked OpenCloud stable: failure/)
+  assert.match(summary, /CodeQL \/ go: missing/)
+  assert.match(summary, /CodeQL \/ javascript-typescript: missing/)
+})
+
+test('a newer queued Actions run supersedes an older completed required check', () => {
+  const summary = requiredCheckSummary([
+    {
+      name: 'CodeQL / go',
+      conclusion: 'SUCCESS',
+      startedAt: '2026-07-11T00:05:00Z',
+      detailsUrl: 'https://github.com/example/repo/actions/runs/100/job/1',
+    },
+    {
+      name: 'CodeQL / go',
+      status: 'QUEUED',
+      startedAt: null,
+      completedAt: null,
+      detailsUrl: 'https://github.com/example/repo/actions/runs/101/job/2',
+    },
+  ])
+  assert.match(summary, /CodeQL \/ go: queued/)
+})
+
+test('a queued rerun job supersedes a completed job from the same Actions run', () => {
+  const summary = requiredCheckSummary([
+    {
+      name: 'Full acceptance / locked OpenCloud stable',
+      conclusion: 'FAILURE',
+      startedAt: '2026-07-11T00:05:00Z',
+      detailsUrl: 'https://github.com/example/repo/actions/runs/101/job/2001',
+    },
+    {
+      name: 'Full acceptance / locked OpenCloud stable',
+      status: 'QUEUED',
+      startedAt: null,
+      completedAt: null,
+      detailsUrl: 'https://github.com/example/repo/actions/runs/101/job/2002',
+    },
+  ])
+  assert.match(summary, /Full acceptance \/ locked OpenCloud stable: queued/)
+})
+
+test('only Renovate branches with the canonical abandoned suffix are ignored', () => {
+  assert.equal(isAbandonedRenovatePullRequest({
+    headRefName: 'renovate/old-update',
+    title: 'Update old dependency - abandoned',
+    labels: [{ name: 'dependencies' }],
+  }), true)
+  assert.equal(isAbandonedRenovatePullRequest({
+    headRefName: 'feature/not-renovate',
+    title: 'Update old dependency - abandoned',
+    labels: [{ name: 'dependencies' }],
+  }), false)
+  assert.equal(isAbandonedRenovatePullRequest({
+    headRefName: 'renovate/live-update',
+    title: 'Update live dependency',
+    labels: [{ name: 'dependencies' }],
+  }), false)
+  assert.equal(isAbandonedRenovatePullRequest({
+    headRefName: 'renovate/untrusted-suffix',
+    title: 'Update old dependency - abandoned',
+    labels: [],
+  }), false)
+})
+
+test('an abandoned Renovate PR cannot remain a release blocker through stale labels', () => {
+  assert.equal(isPendingReleasePullRequest({
+    headRefName: 'renovate/old-update',
+    title: 'Update old dependency - abandoned',
+    labels: [{ name: 'dependencies' }, { name: 'release:weekly' }],
+  }), false)
+  assert.equal(isPendingReleasePullRequest({
+    headRefName: 'renovate/live-update',
+    title: 'Update live dependency',
+    labels: [{ name: 'dependencies' }, { name: 'release:weekly' }],
+  }), true)
 })

@@ -14,7 +14,7 @@ opencloud:
 
 toolchains:
   # Security-patched compiler/runtime used for every build and acceptance run.
-  # renovate: datasource=golang-version depName=golang
+  # renovate: datasource=docker depName=golang versioning=docker
   go: "1.25.12"
   # renovate: datasource=docker depName=golang versioning=docker
   go_image: "golang:1.25.12-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587"

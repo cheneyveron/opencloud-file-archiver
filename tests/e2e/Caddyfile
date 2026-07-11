@@ -31,6 +31,9 @@ https://{$E2E_PUBLIC_HOST}:{$E2E_PORT} {
 
 	handle {
 		reverse_proxy https://opencloud:9200 {
+			header_up Host {$E2E_PUBLIC_HOST}:{$E2E_PORT}
+			header_up X-Forwarded-Host {$E2E_PUBLIC_HOST}:{$E2E_PORT}
+			header_up X-Forwarded-Proto https
 			transport http {
 				tls_insecure_skip_verify
 			}

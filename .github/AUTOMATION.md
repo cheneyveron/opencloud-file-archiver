@@ -117,20 +117,28 @@ a substitute acceptance process.
 The repository has one cron in `weekly-maintenance.yml`. It runs Renovate, audits open PRs and
 dependency lifecycle status, reports blockers, and compares main HEAD with the latest `vX.Y.Z`
 tag. It updates one rolling blocker issue instead of creating weekly duplicates. When no update PR
-is pending and main changed, it invokes the full acceptance workflow itself. Otherwise the accepted
-`release:weekly` PR merge invokes that same release workflow after every other weekly PR is closed,
-so one accepted batch is published after its required checks rather than waiting for the next
-Monday. Duplicate queued weekly or urgent releases become no-ops when the latest version tag already
-points at current main.
+is pending and main changed, it invokes the full acceptance workflow itself. An accepted
+`release:weekly` merge waits for other passing weekly candidates to auto-merge before it enters the
+formal release queue. A candidate with a terminally failed required check is quarantined and cannot
+suppress the accepted batch; the settling window is also bounded so a stuck check cannot prevent
+release indefinitely. Ordinary application dependencies remain accumulated in one weekly PR;
+runtime and build-toolchain updates use a separate compatibility PR. Duplicate queued weekly or
+urgent releases become no-ops when the latest version tag already points at current main.
+
+The locked Go compiler scalar, `golang` builder image, and Dockerfile base all resolve through the
+same Docker-tag lookup. This deliberately follows the newest available, stability-aged image rather
+than combining a newer scalar release with an older image. `go_module_minimum` remains owned by the
+tracked OpenCloud stable release and is not changed by compiler refreshes.
 
 A merged PR labeled `security:high` or `security:critical` invokes the same workflow immediately.
 Maintainers can also dispatch `release.yml` with `release_kind=urgent`. Urgency never skips full
 acceptance.
 
-The post-merge caller deliberately has no workflow-level concurrency group: GitHub keeps only one
-pending run per group, so grouping callers could discard an urgent event behind an unrelated weekly
-merge. All release-bearing callers enter `release.yml`, whose single `formal-release` group safely
-coalesces them because every surviving run re-resolves and publishes the current `main` HEAD.
+The post-merge caller deliberately has no workflow-level concurrency group. All release-bearing
+callers enter `release.yml`, whose `formal-release` concurrency group uses GitHub's durable
+`queue: max` FIFO mode. Each queued run re-resolves current `main`; after one run publishes a
+revision, later runs already covered by that tag finish as no-ops. This prevents both dropped urgent
+events and duplicate releases without treating an open failed PR as a release barrier.
 
 Configure a `release` GitHub Environment without required reviewers so weekly and urgent releases
 remain unattended; do not place build credentials in that environment. Candidate GHCR images are
