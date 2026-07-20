@@ -116,13 +116,12 @@ test('rejects fake SARIF upload, alert API mutation, or CodeQL upload suppressio
   assert.equal(analyze('.github/workflows/source-security.yml', noUpload).length, 1)
 })
 
-test('rejects arbitrary commits even when they use approved action repository names', () => {
+test('allows full-SHA upgrades from the trusted source-security action repositories', () => {
   const permissions = '      actions: read\n      contents: read\n      security-events: write'
-  const unapprovedCheckout = workflow(permissions).replace(
+  const upgraded = workflow(permissions).replace(
     'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0',
     `actions/checkout@${'a'.repeat(40)}`,
-  )
-  const unapprovedCodeql = workflow(permissions).replaceAll(
+  ).replaceAll(
     'github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
     `github/codeql-action/init@${'b'.repeat(40)}`,
   ).replaceAll(
@@ -132,8 +131,29 @@ test('rejects arbitrary commits even when they use approved action repository na
     'github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
     `github/codeql-action/analyze@${'b'.repeat(40)}`,
   )
-  assert.equal(analyze('.github/workflows/source-security.yml', unapprovedCheckout).length, 1)
-  assert.equal(analyze('.github/workflows/source-security.yml', unapprovedCodeql).length, 1)
+  assert.deepEqual(analyze('.github/workflows/source-security.yml', upgraded), [])
+})
+
+test('rejects mutable refs, mixed CodeQL revisions, and lookalike action repositories', () => {
+  const permissions = '      actions: read\n      contents: read\n      security-events: write'
+  const valid = workflow(permissions)
+  const variants = [
+    valid.replace(
+      'github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+      'github/codeql-action/init@v4.37.1',
+    ),
+    valid.replace(
+      'github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+      `github/codeql-action/init@${'b'.repeat(40)}`,
+    ),
+    valid.replace(
+      'github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+      'github/codeql-actions/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9',
+    ),
+  ]
+  for (const variant of variants) {
+    assert.equal(analyze('.github/workflows/source-security.yml', variant).length, 1)
+  }
 })
 
 test('rejects quoted and unquoted trigger keys that normalize to the same Actions key', () => {

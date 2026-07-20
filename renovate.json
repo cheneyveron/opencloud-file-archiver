@@ -201,7 +201,6 @@
     {
       "description": "Keep the OpenCloud release marker and exact container digest in one PR",
       "matchPackageNames": [
-        "opencloud-eu/opencloud",
         "opencloudeu/opencloud"
       ],
       "groupName": "OpenCloud stable compatibility target",
@@ -292,9 +291,10 @@
         "/^compatibility\\.lock\\.yaml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+stable_release: \\\"(?<currentValue>[^\\\"]+)\\\""
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>opencloudeu/opencloud) versioning=(?<versioning>docker)\\n\\s+stable_release: \\\"v(?<openCloudVersion>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""
       ],
-      "versioningTemplate": "semver-coerced"
+      "currentValueTemplate": "{{{openCloudVersion}}}",
+      "autoReplaceStringTemplate": "# renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker\n  stable_release: \"v{{{newVersion}}}\""
     },
     {
       "customType": "regex",

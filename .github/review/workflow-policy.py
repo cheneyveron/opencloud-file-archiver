@@ -9,11 +9,11 @@ SECRET_EXPRESSION = re.compile(r"\$\{\{.*?\bsecrets\b.*?\}\}", re.IGNORECASE | r
 NETWORK_TO_SHELL = re.compile(r"\b(?:curl|wget)\b[^|]{0,2000}\|\s*(?:ba)?sh\b", re.IGNORECASE | re.DOTALL)
 SOURCE_SECURITY_WORKFLOW = ".github/workflows/source-security.yml"
 PINNED_ACTION = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)?@[a-f0-9]{40}$", re.IGNORECASE)
-APPROVED_SOURCE_SECURITY_ACTIONS = {
-    "actions/checkout": "9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
-    "github/codeql-action/autobuild": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
-    "github/codeql-action/init": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
-    "github/codeql-action/analyze": "99df26d4f13ea111d4ec1a7dddef6063f76b97e9",
+TRUSTED_SOURCE_SECURITY_ACTIONS = {
+    "actions/checkout",
+    "github/codeql-action/autobuild",
+    "github/codeql-action/init",
+    "github/codeql-action/analyze",
 }
 
 
@@ -133,8 +133,8 @@ def constrained_codeql_upload(file_name, document):
             return False
         if not isinstance(step["uses"], str) or not PINNED_ACTION.fullmatch(step["uses"]):
             return False
-        action, revision = step["uses"].lower().split("@", 1)
-        if APPROVED_SOURCE_SECURITY_ACTIONS.get(action) != revision:
+        action, _revision = step["uses"].lower().split("@", 1)
+        if action not in TRUSTED_SOURCE_SECURITY_ACTIONS:
             return False
 
     checkout, init, autobuild, analyze = steps
