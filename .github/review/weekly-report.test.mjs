@@ -39,8 +39,8 @@ test('OpenCloud stable discovery follows deployable Docker images', () => {
   assert.equal(latestDeployableStableDockerTag([]), '')
 
   const reportSource = readFileSync('.github/maintenance/weekly-report.mjs', 'utf8')
-  assert.match(reportSource, /hub\.docker\.com\/v2\/repositories\/opencloudeu\/opencloud\/tags/)
-  assert.doesNotMatch(reportSource, /opencloud\/releases\/latest/)
+  assert.ok(reportSource.includes('https://hub.docker.com/v2/repositories/opencloudeu/opencloud/tags'))
+  assert.ok(!reportSource.includes('opencloud/releases/latest'))
 })
 
 test('pnpm outdated uses wanted when current is absent and omits current packages', () => {
