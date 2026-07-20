@@ -9,6 +9,7 @@ import {
   isAutomatedDependencyPullRequest,
   isPendingReleasePullRequest,
   isSameMajorStableVersionAtLeast,
+  latestDeployableStableDockerTag,
   lockedDirectPnpmVersions,
   openCloudWebCompatibilityFindings,
   pnpmUpdateSummary,
@@ -18,6 +19,24 @@ import {
   suggestedReplacementNames,
   webMajorAllowanceChangeFindings,
 } from '../maintenance/weekly-report-lib.mjs'
+
+test('OpenCloud stable discovery follows deployable Docker images', () => {
+  const digest = `sha256:${'a'.repeat(64)}`
+  assert.equal(latestDeployableStableDockerTag([
+    { name: '7.2.2', digest },
+    { name: '7.3.0-rc.1', digest },
+    { name: '7.3.0', digest: '' },
+    { name: 'latest', digest },
+    { name: '08.0.0', digest },
+    { name: '6.99.99', digest },
+  ]), 'v7.2.2')
+  assert.equal(latestDeployableStableDockerTag([
+    { name: '7.2.10', digest },
+    { name: '7.10.2', digest },
+    { name: '8.0.0', digest },
+  ]), 'v8.0.0')
+  assert.equal(latestDeployableStableDockerTag([]), '')
+})
 
 test('pnpm outdated uses wanted when current is absent and omits current packages', () => {
   const result = pnpmUpdateSummary({
