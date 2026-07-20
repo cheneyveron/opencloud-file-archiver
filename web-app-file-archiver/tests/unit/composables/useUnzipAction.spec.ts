@@ -7,6 +7,10 @@ import { useUnzipAction } from '../../../src/composables/useUnzipAction'
 
 let askForArchivePasswordMock = vi.fn()
 
+vi.mock('vue3-gettext', () => ({
+  useGettext: () => ({ $gettext: (value: string) => value })
+}))
+
 vi.mock('../../../src/composables/useAskForArchivePassword', () => {
   return {
     useAskForArchivePassword: () => ({ askForArchivePassword: askForArchivePasswordMock })

@@ -20,6 +20,10 @@ let fetchMock = vi.fn()
 
 type FileActionWithChildren = FileAction & { children?: FileAction[] }
 
+vi.mock('vue3-gettext', () => ({
+  useGettext: () => ({ $gettext: (value: string) => value })
+}))
+
 vi.mock('../../../src/composables/useAskForZipPassword', () => {
   return {
     useAskForZipPassword: () => ({ askForZipPassword: askForZipPasswordMock })
