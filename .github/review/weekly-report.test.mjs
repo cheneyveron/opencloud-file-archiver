@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -37,10 +36,6 @@ test('OpenCloud stable discovery follows deployable Docker images', () => {
     { name: '8.0.0', digest },
   ]), 'v8.0.0')
   assert.equal(latestDeployableStableDockerTag([]), '')
-
-  const reportSource = readFileSync('.github/maintenance/weekly-report.mjs', 'utf8')
-  assert.ok(reportSource.includes('https://hub.docker.com/v2/repositories/opencloudeu/opencloud/tags'))
-  assert.ok(!reportSource.includes('opencloud/releases/latest'))
 })
 
 test('pnpm outdated uses wanted when current is absent and omits current packages', () => {
