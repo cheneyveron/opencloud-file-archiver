@@ -2,6 +2,10 @@ import { useModals } from '@opencloud-eu/web-pkg'
 import { defaultComponentMocks, getComposableWrapper } from '@opencloud-eu/web-test-helpers'
 import { useAskForZipPassword } from '../../../src/composables/useAskForZipPassword'
 
+vi.mock('vue3-gettext', () => ({
+  useGettext: () => ({ $gettext: (value: string) => value })
+}))
+
 describe('ask for zip password', () => {
   beforeEach(() => {
     vi.useFakeTimers()
