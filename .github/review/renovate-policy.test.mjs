@@ -126,3 +126,16 @@ test('the Go scalar uses the same Docker lookup as its image references', () => 
   assert.ok(genericScalar)
   assert.ok(!genericScalar.matchStrings[0].includes('golang-version'))
 })
+
+test('the OpenCloud release scalar and image share the Docker tag source', () => {
+  const scalar = config.customManagers.find(
+    (manager) => manager.currentValueTemplate === '{{{openCloudVersion}}}',
+  )
+  assert.ok(scalar)
+  assert.match(scalar.matchStrings[0], /datasource=\(\?<datasource>docker\)/)
+  assert.match(scalar.matchStrings[0], /depName>opencloudeu\/opencloud/)
+  assert.match(scalar.autoReplaceStringTemplate, /stable_release: "v\{\{\{newVersion\}\}\}"/)
+
+  const target = rule('Keep the OpenCloud release marker and exact container digest in one PR')
+  assert.deepEqual(target.matchPackageNames, ['opencloudeu/opencloud'])
+})
