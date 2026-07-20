@@ -39,6 +39,19 @@ function stableVersionTriplet(value) {
   return match ? match.slice(1).map(BigInt) : null
 }
 
+export function latestDeployableStableDockerTag(records) {
+  let latest = null
+  for (const record of Array.isArray(records) ? records : []) {
+    const version = stableVersionTriplet(record?.name)
+    if (!version || !/^sha256:[a-f0-9]{64}$/.test(String(record?.digest || ''))) continue
+    const differingIndex = latest && version.findIndex((part, index) => part !== latest.version[index])
+    if (!latest || (differingIndex >= 0 && version[differingIndex] > latest.version[differingIndex])) {
+      latest = { name: record.name, version }
+    }
+  }
+  return latest ? `v${latest.name}` : ''
+}
+
 export function isSameMajorStableVersionAtLeast(baselineVersion, selectedVersion) {
   const baseline = stableVersionTriplet(baselineVersion)
   const selected = stableVersionTriplet(selectedVersion)

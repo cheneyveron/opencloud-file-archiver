@@ -126,6 +126,11 @@ release indefinitely. Ordinary application dependencies remain accumulated in on
 runtime and build-toolchain updates use a separate compatibility PR. Duplicate queued weekly or
 urgent releases become no-ops when the latest version tag already points at current main.
 
+OpenCloud discovery uses the highest strict `X.Y.Z` Docker Hub tag that has a published digest.
+Renovate, the compatibility marker, the exact image pin, weekly reporting, and final release
+preflight all share that deployable definition. A GitHub release without its corresponding image
+is not a compatibility target and cannot make an already accepted release stale.
+
 The locked Go compiler scalar, `golang` builder image, and Dockerfile base all resolve through the
 same Docker-tag lookup rather than combining a newer scalar release with an older image. Go compiler
 releases bypass the general stability delay because `govulncheck` treats reachable standard-library

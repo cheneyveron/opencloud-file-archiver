@@ -6,6 +6,7 @@ import {
   directGoModuleNames,
   isAbandonedRenovatePullRequest,
   isPendingReleasePullRequest,
+  latestDeployableStableDockerTag,
   lockedDirectPnpmVersions,
   openCloudWebCompatibilityFindings,
   pnpmUpdateSummary,
@@ -47,6 +48,30 @@ const json = (command, args, options) => {
   } catch (error) {
     return { error: `Invalid JSON from ${command}: ${error.message}` }
   }
+}
+
+const openCloudDockerTags = () => {
+  const tags = []
+  let next = 'https://hub.docker.com/v2/repositories/opencloudeu/opencloud/tags?page_size=100&page=1&ordering=last_updated'
+  for (let page = 0; next && page < 100; page += 1) {
+    const response = json('curl', ['--fail', '--silent', '--show-error', next])
+    if (response?.error || !Array.isArray(response?.results)) {
+      return { error: response?.error || 'Docker Hub returned an invalid tag response' }
+    }
+    tags.push(...response.results)
+    if (!response.next) return tags
+    try {
+      const nextUrl = new URL(response.next)
+      if (nextUrl.protocol !== 'https:' || nextUrl.hostname !== 'hub.docker.com' ||
+          nextUrl.pathname !== '/v2/repositories/opencloudeu/opencloud/tags') {
+        return { error: 'Docker Hub returned an untrusted pagination URL' }
+      }
+      next = nextUrl.toString()
+    } catch {
+      return { error: 'Docker Hub returned an invalid pagination URL' }
+    }
+  }
+  return { error: 'Docker Hub tag pagination exceeded the safety limit' }
 }
 
 const compatibility = readFileSync('compatibility.lock.yaml', 'utf8')
@@ -169,15 +194,15 @@ const discoverGitHubCandidates = (dependency, note, approved) => {
   return { candidates, failure: '' }
 }
 
-const latestOpenCloud = json('gh', ['api', 'repos/opencloud-eu/opencloud/releases/latest'])
-const latestTag = latestOpenCloud?.tag_name || 'lookup-failed'
+const openCloudTags = openCloudDockerTags()
+const latestTag = latestDeployableStableDockerTag(openCloudTags) || 'lookup-failed'
 const upstreamChanged = latestTag !== 'lookup-failed' && latestTag !== lockedOpenCloud
 const configurationBlockers = []
 if (!releasePreflight && process.env.RENOVATE_CONFIGURED !== 'true') {
   configurationBlockers.push('RENOVATE_TOKEN is not configured; automatic dependency PR creation is disabled')
 }
 if (latestTag === 'lookup-failed') {
-  configurationBlockers.push('The latest formal OpenCloud release could not be resolved')
+  configurationBlockers.push('The latest deployable OpenCloud stable image tag could not be resolved from Docker Hub')
 } else if (upstreamChanged) {
   configurationBlockers.push(`OpenCloud ${latestTag} is available; merge the grouped compatibility target and image-digest update before release`)
 }
@@ -433,7 +458,7 @@ const lines = [
   `Generated: ${new Date().toISOString()}`,
   `Repository: ${repository}`,
   `Tracked OpenCloud stable: ${lockedOpenCloud}`,
-  `Latest OpenCloud stable: ${latestTag}`,
+  `Latest deployable OpenCloud stable: ${latestTag}`,
   `Latest OpenCloud required Go: ${upstreamGo}`,
   `Latest OpenCloud embedded Web: ${upstreamWeb}`,
   `Embedded OpenCloud Web Volta Node baseline: ${upstreamNode}`,
