@@ -1,5 +1,5 @@
 schema_version: 1
-observed_at_utc: "2026-07-10T00:00:00Z"
+observed_at_utc: "2026-09-14T00:00:00Z"
 
 # This file records the compatibility target, not an unverified claim. A target
 # becomes releasable only after the release workflow records a passing acceptance
@@ -11,16 +11,16 @@ opencloud:
   # a new embedded Web major requires roadmap review and explicit approval.
   embedded_web_major: "7"
   # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
-  stable_release: "v7.2.2"
+  stable_release: "v7.2.4"
   # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
-  image: "opencloudeu/opencloud:7.2.2@sha256:01574d21811882390679e78aa2b2147d03779a5d486f6f2fd62a28463a485f3d"
+  image: "opencloudeu/opencloud:7.2.4@sha256:6d992ccc5f1cbc7b2a9b272ba25f879b1b159c2d7ed7f5527e09059f16295697"
 
 toolchains:
   # Security-patched compiler/runtime used for every build and acceptance run.
   # renovate: datasource=docker depName=golang versioning=docker
-  go: "1.26.5"
+  go: "1.26.8"
   # renovate: datasource=docker depName=golang versioning=docker
-  go_image: "golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2"
+  go_image: "golang:1.26.8-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628"
   # Same stable major as OpenCloud Web's Volta version and no older than it.
   # Exact frontend compatibility is still proven by the release E2E gate.
   # renovate: datasource=node-version depName=node
