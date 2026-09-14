@@ -5,7 +5,7 @@ maintenance and release.
 
 ## Required secret: `RENOVATE_TOKEN`
 
-The single weekly workflow self-hosts Renovate. `GITHUB_TOKEN` must not be substituted: pull
+The weekly maintenance workflow self-hosts Renovate. `GITHUB_TOKEN` must not be substituted: pull
 requests created with it do not reliably trigger normal PR/push workflows.
 
 Prefer a dedicated GitHub App installation token or narrowly scoped bot token. It needs repository
@@ -21,11 +21,15 @@ workflows. A missing `RENOVATE_TOKEN` therefore fails normalization closed. Pref
 with a narrowly scoped GitHub App installation token when practical, while retaining Dependabot
 alerts read, contents/pull-request/issue write, and merge permission.
 
-`renovate.json` deliberately says `schedule: at any time`: Renovate itself is started only by the
-one Monday Actions cron, so adding another internal weekly window would create competing schedules.
-High/Critical vulnerability PRs can also be created by a trusted security bot or manually before
-Monday; their trusted severity label enters the immediate post-merge release path for runtime or
-build-chain dependencies.
+`weekly-maintenance.yml` runs on Sunday and Monday at 03:17 UTC. Renovate's package
+schedules select new update branches: OpenCloud, runtime/build toolchains, GitHub Actions,
+and the paired Playwright package/image run on Sunday; ordinary application dependencies
+run on Monday, 24 hours later. Full-day UTC windows tolerate delayed Actions starts.
+Existing branches can still rebase outside their creation window, so Monday updates can
+incorporate accepted upstream changes. Manual dispatch respects these same windows.
+Vulnerability alerts retain `at any time`, including the immediate High/Critical release path.
+Upstream batches have higher PR priority, but existing PR concurrency limits and required
+checks still apply; a Sunday start is not a guarantee that an upgrade merges before Monday.
 
 ## Branch protection / ruleset
 
@@ -115,9 +119,9 @@ a substitute acceptance process.
 
 ## Weekly and urgent releases
 
-The repository has one cron in `weekly-maintenance.yml`. It runs Renovate, audits open PRs and
-dependency lifecycle status, reports blockers, and compares main HEAD with the latest `vX.Y.Z`
-tag. It updates one rolling blocker issue instead of creating weekly duplicates. When no update PR
+The two weekly runs in `weekly-maintenance.yml` run Renovate, audit open PRs and
+dependency lifecycle status, report blockers, and compare main HEAD with the latest `vX.Y.Z`
+tag. Each run updates one rolling blocker issue instead of creating weekly duplicates. When no update PR
 is pending and main changed, it invokes the full acceptance workflow itself. An accepted
 `release:weekly` merge waits for other passing weekly candidates to auto-merge before it enters the
 formal release queue. A candidate with a terminally failed required check is quarantined and cannot

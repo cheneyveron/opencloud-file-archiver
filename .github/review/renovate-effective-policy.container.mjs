@@ -72,6 +72,7 @@ for (const severity of ['HIGH', 'CRITICAL']) {
       assert.equal(result.automerge, true)
       assert.equal(result.automergeType, 'pr')
       assert.equal(result.minimumReleaseAge, '0 days')
+      assert.deepEqual(result.force.schedule, ['at any time'])
       assert.ok(!combinedLabels(result).has('security:triage'))
       assert.ok(!combinedLabels(result).has('release:weekly'))
       assert.ok(!combinedLabels(result).has('roadmap:required'))
@@ -300,4 +301,37 @@ test('OpenCloud release marker and image share one Docker tag lookup', async () 
   }, false)
   const updated = lock.replace(scalar.replaceString, replacement)
   assert.match(updated, /^  stable_release: "v7\.2\.3"$/m)
+})
+
+
+test('upstream pairs run Sunday while application updates wait until Monday', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'] })
+  const { isScheduledNow } = await import(renovateModule('dist/workers/repository/update/branch/schedule.js'))
+  for (const [depName, manager, packageFile, day] of [
+    ['opencloudeu/opencloud', 'custom.regex', 'compatibility.lock.yaml', 0],
+    ['golang', 'custom.regex', 'compatibility.lock.yaml', 0],
+    ['golang', 'dockerfile', 'file-archiver-service/Dockerfile', 0],
+    ['node', 'custom.regex', 'compatibility.lock.yaml', 0],
+    ['pnpm', 'npm', 'web-app-file-archiver/package.json', 0],
+    ['@playwright/test', 'npm', 'web-app-file-archiver/package.json', 0],
+    ['mcr.microsoft.com/playwright', 'custom.regex', 'compatibility.lock.yaml', 0],
+    ['actions/checkout', 'github-actions', '.github/workflows/pr-validation.yml', 0],
+    ['vue', 'npm', 'web-app-file-archiver/package.json', 1],
+    ['vitest', 'npm', 'web-app-file-archiver/package.json', 1],
+    ['github.com/bodgit/sevenzip', 'gomod', 'file-archiver-service/go.mod', 1],
+  ]) {
+    const result = await applyPackageRules({
+      ...config, manager, packageFile, depName, packageName: depName,
+      currentVersion: '1.0.0', newVersion: '1.0.1', updateType: 'patch',
+      isBreaking: false, isVulnerabilityAlert: false,
+    })
+    assert.deepEqual(result.schedule, [`* * * * ${day}`], depName)
+    for (const hour of ['03:17', '18:00']) {
+      t.mock.timers.setTime(new Date(`2026-09-20T${hour}:00Z`).getTime())
+      assert.equal(isScheduledNow(result), day === 0, depName)
+      t.mock.timers.setTime(new Date(`2026-09-21T${hour}:00Z`).getTime())
+      assert.equal(isScheduledNow(result), day === 1, depName)
+    }
+    assert.equal(result.automerge, true, depName)
+  }
 })
