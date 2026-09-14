@@ -11,7 +11,7 @@
   "dependencyDashboardTitle": "Dependency and compatibility maintenance",
   "gitAuthor": "Cheney Wang <i@cheney.wang>",
   "minimumReleaseAge": "3 days",
-  "prConcurrentLimit": 5,
+  "prConcurrentLimit": 10,
   "prHourlyLimit": 0,
   "platformAutomerge": true,
   "rebaseWhen": "behind-base-branch",

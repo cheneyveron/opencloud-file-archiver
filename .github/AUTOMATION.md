@@ -28,8 +28,8 @@ run on Monday, 24 hours later. Full-day UTC windows tolerate delayed Actions sta
 Existing branches can still rebase outside their creation window, so Monday updates can
 incorporate accepted upstream changes. Manual dispatch respects these same windows.
 Vulnerability alerts retain `at any time`, including the immediate High/Critical release path.
-Upstream batches have higher PR priority, but existing PR concurrency limits and required
-checks still apply; a Sunday start is not a guarantee that an upgrade merges before Monday.
+Upstream batches have higher PR priority. The PR limit is 10 so blocked application and
+roadmap candidates leave room for upstream batches. Required checks still apply; a Sunday start is not a guarantee that an upgrade merges before Monday.
 
 ## Branch protection / ruleset
 
