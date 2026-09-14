@@ -11,9 +11,9 @@ opencloud:
   # a new embedded Web major requires roadmap review and explicit approval.
   embedded_web_major: "7"
   # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
-  stable_release: "v7.2.2"
+  stable_release: "v7.2.4"
   # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
-  image: "opencloudeu/opencloud:7.2.2@sha256:01574d21811882390679e78aa2b2147d03779a5d486f6f2fd62a28463a485f3d"
+  image: "opencloudeu/opencloud:7.2.4@sha256:6d992ccc5f1cbc7b2a9b272ba25f879b1b159c2d7ed7f5527e09059f16295697"
 
 toolchains:
   # Security-patched compiler/runtime used for every build and acceptance run.
