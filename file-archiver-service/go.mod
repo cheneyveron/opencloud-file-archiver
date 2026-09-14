@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/bodgit/sevenzip v1.6.5
-	github.com/nwaples/rardecode/v2 v2.2.5
+	github.com/nwaples/rardecode/v2 v2.4.1
 	github.com/yeka/zip v0.0.0-20231116150916-03d6312748a9
 )
 
