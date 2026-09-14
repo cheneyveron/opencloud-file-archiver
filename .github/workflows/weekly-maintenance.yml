@@ -1,9 +1,10 @@
 name: Weekly maintenance
 
 on:
-  # This is the repository's only cron. Dependency refresh, open-PR review,
-  # archived/deprecated checks, and stable OpenCloud discovery all happen here.
+  # Upstream/runtime refresh precedes ordinary dependencies by one day.
+  # Renovate package schedules select the batch; both runs audit and release.
   schedule:
+    - cron: "17 3 * * 0"
     - cron: "17 3 * * 1"
   workflow_dispatch:
 
@@ -65,7 +66,7 @@ jobs:
 
       # RENOVATE_TOKEN must belong to a narrowly scoped bot/GitHub App. GITHUB_TOKEN
       # is intentionally not used because its PRs would not trigger normal CI.
-      - name: Run the one weekly Renovate refresh
+      - name: Refresh the scheduled Renovate batch
         if: steps.renovate-preflight.outputs.available == 'true'
         env:
           RENOVATE_IMAGE: ${{ steps.lock.outputs.renovate_image }}

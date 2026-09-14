@@ -5,13 +5,13 @@
   ],
   "timezone": "Etc/UTC",
   "schedule": [
-    "at any time"
+    "* * * * 1"
   ],
   "dependencyDashboard": true,
   "dependencyDashboardTitle": "Dependency and compatibility maintenance",
   "gitAuthor": "Cheney Wang <i@cheney.wang>",
   "minimumReleaseAge": "3 days",
-  "prConcurrentLimit": 5,
+  "prConcurrentLimit": 10,
   "prHourlyLimit": 0,
   "platformAutomerge": true,
   "rebaseWhen": "behind-base-branch",
@@ -159,7 +159,11 @@
       "groupName": "runtime and build toolchain compatibility",
       "groupSlug": "runtime-build-toolchain-compatibility",
       "automerge": true,
-      "automergeType": "pr"
+      "automergeType": "pr",
+      "schedule": [
+        "* * * * 0"
+      ],
+      "prPriority": 10
     },
     {
       "description": "Compatibility lock updates need the trusted automation marker before policy acceptance",
@@ -186,7 +190,11 @@
         "tonistiigi/binfmt"
       ],
       "groupName": "runtime and build toolchain compatibility",
-      "groupSlug": "runtime-build-toolchain-compatibility"
+      "groupSlug": "runtime-build-toolchain-compatibility",
+      "schedule": [
+        "* * * * 0"
+      ],
+      "prPriority": 10
     },
     {
       "description": "Go compiler releases bypass stability delay because reachable standard-library fixes are release blockers",
@@ -204,7 +212,11 @@
         "opencloudeu/opencloud"
       ],
       "groupName": "OpenCloud stable compatibility target",
-      "groupSlug": "opencloud-stable-compatibility"
+      "groupSlug": "opencloud-stable-compatibility",
+      "schedule": [
+        "* * * * 0"
+      ],
+      "prPriority": 10
     },
     {
       "description": "Keep Playwright tests and their exact browser image together",
@@ -213,7 +225,11 @@
         "mcr.microsoft.com/playwright"
       ],
       "groupName": "Playwright test runtime",
-      "groupSlug": "playwright-test-runtime"
+      "groupSlug": "playwright-test-runtime",
+      "schedule": [
+        "* * * * 0"
+      ],
+      "prPriority": 10
     },
     {
       "description": "OpenCloud owns the go.mod compatibility minimum; never bump it independently",
