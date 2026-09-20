@@ -48,8 +48,8 @@ importers:
         specifier: ^4.1.1
         version: 4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))
       vitest-mock-extended:
-        specifier: ^4.0.0
-        version: 4.0.0(typescript@6.0.3)(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))
+        specifier: ^5.0.0
+        version: 5.1.1(typescript@6.0.3)(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))
       vue:
         specifier: ^3.4.21
         version: 3.5.40(typescript@6.0.3)
@@ -2141,6 +2141,12 @@ packages:
     resolution: {integrity: sha512-m2FmH8JYfxzZoLsHuhXRY+Pv++a3zd91HYpSz81tpRLEHbtFkEL2QcWvJowucWuNTirzQURKfWbJJSXbYqkTsA==}
     peerDependencies:
       typescript: 3.x || 4.x || 5.x || 6.x
+      vitest: '>=4.0.0'
+
+  vitest-mock-extended@5.1.1:
+    resolution: {integrity: sha512-k5Ji2+t4+nsdepXeakCkilyKydtgaULtP0HsjwQGIZsYr5hDTqrwCtC0+Sh0YBKUS7cY/Wxplf7SVjcZstTIMQ==}
+    peerDependencies:
+      typescript: 3.x || 4.x || 5.x || 6.x || 7.x
       vitest: '>=4.0.0'
 
   vitest@4.1.11:
@@ -4500,6 +4506,12 @@ snapshots:
       yaml: 2.9.0
 
   vitest-mock-extended@4.0.0(typescript@6.0.3)(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))):
+    dependencies:
+      ts-essentials: 10.2.1(typescript@6.0.3)
+      typescript: 6.0.3
+      vitest: 4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))
+
+  vitest-mock-extended@5.1.1(typescript@6.0.3)(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))):
     dependencies:
       ts-essentials: 10.2.1(typescript@6.0.3)
       typescript: 6.0.3
