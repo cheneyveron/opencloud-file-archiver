@@ -149,7 +149,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ needs.plan.outputs.node_version }}
 
@@ -159,7 +159,7 @@ jobs:
       # on a globally installed pnpm binary on fresh hosted runners.
 
       - name: Set up release packaging Go toolchain
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ needs.plan.outputs.go_version }}
           cache: false
@@ -218,7 +218,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up security-patched Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ needs.plan.outputs.go_version }}
           cache-dependency-path: file-archiver-service/go.sum
@@ -403,13 +403,13 @@ jobs:
           esac
 
       - name: Set up Go for lifecycle discovery
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ steps.lock.outputs.go_version }}
           cache-dependency-path: file-archiver-service/go.sum
 
       - name: Set up Node for lifecycle discovery
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ steps.lock.outputs.node_version }}
 
