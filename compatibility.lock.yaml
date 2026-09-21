@@ -29,7 +29,7 @@ toolchains:
   node_image: "node:24.18.0-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059"
   # The extension's packageManager field is authoritative for reproducible builds.
   # renovate: datasource=npm depName=pnpm
-  pnpm: "11.13.1"
+  pnpm: "12.4.2"
   # Must match the @playwright/test version resolved in pnpm-lock.yaml.
   # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
   playwright_image: "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48"
