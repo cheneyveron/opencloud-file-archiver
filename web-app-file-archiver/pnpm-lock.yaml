@@ -8,7 +8,7 @@ overrides:
   adm-zip: 0.6.1
   axios: 1.18.1
   ws: 8.21.1
-  nanoid@<3.3.18: 3.3.19
+  nanoid@<3.3.18: 6.0.1
 
 importers:
 
@@ -1652,14 +1652,14 @@ packages:
   namespace-emitter@2.0.1:
     resolution: {integrity: sha512-N/sMKHniSDJBjfrkbS/tpkPj4RAbvW3mr8UAzvlMHyun93XEm83IAvhWtJVHo+RHn/oO8Job5YN4b+wRjSVp5g==}
 
-  nanoid@3.3.19:
-    resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
-    engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
-    hasBin: true
-
   nanoid@5.1.16:
     resolution: {integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==}
     engines: {node: ^18 || >=20}
+    hasBin: true
+
+  nanoid@6.0.1:
+    resolution: {integrity: sha512-3wVS3i51pE2pi1k5FFL/95BGfVS0kSsvDVuGXHOtxox/TywUmtgq+3qiTOTbs9J7KfHaXPiN171k/A6dBnaXFw==}
+    engines: {node: ^22 || ^24 || >=26}
     hasBin: true
 
   nested-property@4.0.0:
@@ -4080,9 +4080,9 @@ snapshots:
 
   namespace-emitter@2.0.1: {}
 
-  nanoid@3.3.19: {}
-
   nanoid@5.1.16: {}
+
+  nanoid@6.0.1: {}
 
   nested-property@4.0.0: {}
 
@@ -4198,7 +4198,7 @@ snapshots:
 
   postcss@8.5.19:
     dependencies:
-      nanoid: 3.3.19
+      nanoid: 6.0.1
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
