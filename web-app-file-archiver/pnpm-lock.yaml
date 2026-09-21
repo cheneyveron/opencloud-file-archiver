@@ -18,8 +18,8 @@ importers:
         specifier: ^7.0.0
         version: 7.2.0(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.7(typescript@6.0.3))(vue@3.5.40(typescript@6.0.3))
       '@opencloud-eu/tsconfig':
-        specifier: ^7.0.0
-        version: 7.2.0
+        specifier: ^8.0.0
+        version: 8.0.0
       '@opencloud-eu/web-client':
         specifier: ^7.0.0
         version: 7.2.0
@@ -249,8 +249,8 @@ packages:
       vite: ^7.2.0 || ^8.0.0
       vitest: ^4.0.0
 
-  '@opencloud-eu/tsconfig@7.2.0':
-    resolution: {integrity: sha512-2rUg6g9Rv2ItpAIlpsEWZ6BPjNzBhH8ZqrBI/dyVW3gvF7MnCT/rktc0VJ64ZIA39cNncre3hszKN4lI05G2ww==}
+  '@opencloud-eu/tsconfig@8.0.0':
+    resolution: {integrity: sha512-UicH34jSFGjUt4qYfB95vsvBUz6CtapSMCLDR0mo5h2YKeId/QQye2MrkrSiUJdQqq37Q9rpfhy9ZcxWAKMleA==}
 
   '@opencloud-eu/web-client@7.2.0':
     resolution: {integrity: sha512-sgx8GYUFxJojDstz/l30rCD5tqcS26AhMfZlLOHnkeL6wXgjvq+EF7sSK9Hkj1zbpJzYaz03YFtA9t+WxvI71g==}
@@ -2633,7 +2633,7 @@ snapshots:
       - vue
       - vue-tsc
 
-  '@opencloud-eu/tsconfig@7.2.0': {}
+  '@opencloud-eu/tsconfig@8.0.0': {}
 
   '@opencloud-eu/web-client@7.2.0':
     dependencies:
