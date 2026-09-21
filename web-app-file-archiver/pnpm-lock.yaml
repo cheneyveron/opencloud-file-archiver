@@ -15,8 +15,8 @@ importers:
   .:
     devDependencies:
       '@opencloud-eu/extension-sdk':
-        specifier: ^7.0.0
-        version: 7.2.0(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.7(typescript@6.0.3))(vue@3.5.40(typescript@6.0.3))
+        specifier: ^8.0.0
+        version: 8.0.0(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.7(typescript@6.0.3))(vue@3.5.40(typescript@6.0.3))
       '@opencloud-eu/tsconfig':
         specifier: ^7.0.0
         version: 7.2.0
@@ -243,11 +243,11 @@ packages:
     peerDependencies:
       pinia: ^3.0.3
 
-  '@opencloud-eu/extension-sdk@7.2.0':
-    resolution: {integrity: sha512-IhpQ4KsKqxKCo7cMG0LDbaaOSuGxETBirl+aPAG5Ukz5J0KtvqCG/z6kehZxeU95RhmOVX3l/OLL5PmAkMneaQ==}
+  '@opencloud-eu/extension-sdk@8.0.0':
+    resolution: {integrity: sha512-DCX9QWz6sACo6xLcRoH1WZp/NrKOTogImbkXRCYZlmryLS4Mr1rVi2yzwqEGkBpuSl9DT5F+Q6psMhpeMza/HQ==}
     peerDependencies:
       vite: ^7.2.0 || ^8.0.0
-      vitest: ^4.0.0
+      vitest: ^4.0.0 || ^5.0.0
 
   '@opencloud-eu/tsconfig@7.2.0':
     resolution: {integrity: sha512-2rUg6g9Rv2ItpAIlpsEWZ6BPjNzBhH8ZqrBI/dyVW3gvF7MnCT/rktc0VJ64ZIA39cNncre3hszKN4lI05G2ww==}
@@ -1192,9 +1192,6 @@ packages:
   es-errors@1.3.0:
     resolution: {integrity: sha512-Zf5H2Kxt2xjTvbJvP2ZWLEICxA6j+hAmMzIlypy4xcBg1vKVnx89Wy0GbS+kf5cwCVFFzdCFh2XSCFNULS6csw==}
     engines: {node: '>= 0.4'}
-
-  es-module-lexer@2.3.1:
-    resolution: {integrity: sha512-shc1dbU90Yl/xq1QrC7QRtfcwURZuVRfPhZbDoldJ1cn1gzDvBaBWlv0eFolj5+0znnPJz5TXLxsN77X/12KTA==}
 
   es-module-lexer@2.3.2:
     resolution: {integrity: sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==}
@@ -2557,7 +2554,7 @@ snapshots:
       '@module-federation/sdk': 2.3.1(node-fetch@3.3.2)
       '@rollup/pluginutils': 5.4.0
       defu: 6.1.7
-      es-module-lexer: 2.3.1
+      es-module-lexer: 2.3.2
       estree-walker: 3.0.3
       magic-string: 0.30.21
       pathe: 2.0.3
@@ -2614,7 +2611,7 @@ snapshots:
       - vue
       - webpack
 
-  '@opencloud-eu/extension-sdk@7.2.0(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.7(typescript@6.0.3))(vue@3.5.40(typescript@6.0.3))':
+  '@opencloud-eu/extension-sdk@8.0.0(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vitest@4.1.11(@types/node@26.1.0)(happy-dom@20.10.6)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.7(typescript@6.0.3))(vue@3.5.40(typescript@6.0.3))':
     dependencies:
       '@module-federation/vite': 1.14.2(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vue-tsc@3.3.7(typescript@6.0.3))
       '@tailwindcss/vite': 4.3.3(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))
@@ -2827,7 +2824,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
       estree-walker: 2.0.2
-      picomatch: 4.0.5
+      picomatch: 4.0.7
 
   '@sentry/browser-utils@10.66.0':
     dependencies:
@@ -3665,8 +3662,6 @@ snapshots:
   es-define-property@1.0.1: {}
 
   es-errors@1.3.0: {}
-
-  es-module-lexer@2.3.1: {}
 
   es-module-lexer@2.3.2: {}
 
