@@ -21,8 +21,8 @@ importers:
         specifier: ^7.0.0
         version: 7.2.0
       '@opencloud-eu/web-client':
-        specifier: ^7.0.0
-        version: 7.2.0
+        specifier: ^8.0.0
+        version: 8.0.0
       '@opencloud-eu/web-pkg':
         specifier: ^7.0.0
         version: 7.2.0(@floating-ui/dom@1.8.0)(@tiptap/extension-list@3.28.0(@tiptap/core@3.31.3(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@tiptap/extensions@3.28.0(@tiptap/core@3.31.3(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@vue/compiler-sfc@3.5.40)(rolldown@1.1.5)(typescript@6.0.3)(vite@8.1.5(@types/node@26.1.0)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.40(typescript@6.0.3))
@@ -254,6 +254,9 @@ packages:
 
   '@opencloud-eu/web-client@7.2.0':
     resolution: {integrity: sha512-sgx8GYUFxJojDstz/l30rCD5tqcS26AhMfZlLOHnkeL6wXgjvq+EF7sSK9Hkj1zbpJzYaz03YFtA9t+WxvI71g==}
+
+  '@opencloud-eu/web-client@8.0.0':
+    resolution: {integrity: sha512-mEuPrrqneX6He552XBaztXAvN1WBDzt5Gis9PMxpOK0p3YcJsEYXIkefAHaRDiwt581pKTfjDW9qm3x/U/zmfw==}
 
   '@opencloud-eu/web-pkg@7.2.0':
     resolution: {integrity: sha512-eV/4CO7/3LpUf1wFsQlQa0q48fOJKJID1bCNeqBvMnjnag9OLoKdThzciBwB54JF6sKrwEc0v/3JH1FX3LhKQA==}
@@ -2261,6 +2264,10 @@ packages:
     resolution: {integrity: sha512-fVPuRLtcduVGvSO7Tn/6TQCzIvI/g6BO/+xPRctCvi/GytYpjn4czxWbh4HsArsdom9qz9BI63k9/v2HBUui1A==}
     engines: {node: '>=14'}
 
+  webdav@5.9.0:
+    resolution: {integrity: sha512-OMJ6wtK1WvCO++aOLoQgE96S8KT4e5aaClWHmHXfFU369r4eyELN569B7EqT4OOUb99mmO58GkyuiCv/Ag6J0Q==}
+    engines: {node: '>=14'}
+
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
 
@@ -2645,6 +2652,21 @@ snapshots:
       luxon: 3.7.2
       uuid: 14.0.1
       webdav: 5.10.0
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@opencloud-eu/web-client@8.0.0':
+    dependencies:
+      '@casl/ability': 7.0.1
+      '@microsoft/fetch-event-source': 2.0.1
+      axios: 1.18.1
+      fast-xml-parser: 5.10.1
+      lodash-es: 4.18.1
+      luxon: 3.7.2
+      uuid: 14.0.1
+      webdav: 5.9.0
       zod: 4.4.3
     transitivePeerDependencies:
       - debug
@@ -4628,6 +4650,23 @@ snapshots:
   web-streams-polyfill@3.3.3: {}
 
   webdav@5.10.0:
+    dependencies:
+      '@buttercup/fetch': 0.2.1
+      base-64: 1.0.0
+      byte-length: 1.0.2
+      entities: 6.0.1
+      fast-xml-parser: 5.10.1
+      hot-patcher: 2.0.1
+      layerr: 3.0.0
+      md5: 2.3.0
+      minimatch: 9.0.9
+      nested-property: 4.0.0
+      node-fetch: 3.3.2
+      path-posix: 1.0.0
+      url-join: 5.0.0
+      url-parse: 1.5.10
+
+  webdav@5.9.0:
     dependencies:
       '@buttercup/fetch': 0.2.1
       base-64: 1.0.0
