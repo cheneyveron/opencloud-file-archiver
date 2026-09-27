@@ -59,3 +59,20 @@ Acceptance: no regression in the full archive matrix and no relaxation of existi
   decision.
 - A major dependency or OpenCloud breaking change never automerges and must add a new roadmap
   decision before implementation.
+
+## Web 8 and pnpm 12 compatibility decision
+
+The September 2026 migration upgrades the OpenCloud extension SDK, Web client, Web package,
+TypeScript configuration, and test helpers together to v8. The packages share stores and test
+injection state; updating Web and test helpers independently can load incompatible Pinia copies.
+
+pnpm is an extension build tool, not a shared browser runtime. Approve pnpm 12 with its exact
+version recorded in both packageManager and the compatibility lock. It must be a stable version
+no older than upstream's pnpm baseline; Node continues to require upstream's stable major.
+Future breaking toolchain updates still require a roadmap decision and never automerge.
+
+The mandatory deployment target remains the latest formal release available in the upstream
+stable Docker repository, currently OpenCloud 7.2.4. OpenCloud 8.0.1 is distributed separately
+as opencloudeu/opencloud-rolling; test it as an additional compatibility target without changing
+the stable deployment channel. Acceptance requires frozen installs, types, unit tests, the exact
+release ZIP, and browser archive operations against the unpatched host.

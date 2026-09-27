@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the proposed revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the proposed revision
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -81,6 +81,11 @@ jobs:
         run: |
           test -f scripts/acceptance.sh
           bash scripts/acceptance.sh
+
+      - name: Verify Web 8 compatibility on the pinned upstream rolling release
+        env:
+          ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output/web8
+        run: bash scripts/acceptance.sh --opencloud-image opencloudeu/opencloud-rolling:8.0.1@sha256:1e78144071ab3fc20d2533dd4c5709d24b7e1669c96439fdf7c73cb2808a5d5e
 
       - name: Preserve acceptance diagnostics
         if: always()

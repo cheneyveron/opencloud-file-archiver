@@ -335,3 +335,43 @@ test('upstream pairs run Sunday while application updates wait until Monday', as
     assert.equal(result.automerge, true, depName)
   }
 })
+
+test('OpenCloud Web and test helpers stay together without automerging major migrations', async () => {
+  for (const depName of ['@opencloud-eu/extension-sdk', '@opencloud-eu/tsconfig', '@opencloud-eu/web-client', '@opencloud-eu/web-pkg', '@opencloud-eu/web-test-helpers']) {
+    for (const isBreaking of [false, true]) {
+      const result = await applyPackageRules({
+        ...config, manager: 'npm', datasource: 'npm', depName, packageName: depName,
+        packageFile: 'web-app-file-archiver/package.json', versioning: 'semver',
+        currentVersion: '8.0.0', newVersion: isBreaking ? '9.0.0' : '8.1.0',
+        updateType: isBreaking ? 'major' : 'minor', isBreaking, isVulnerabilityAlert: false,
+      })
+      assert.equal(result.groupSlug, 'opencloud-web-sdk-compatibility')
+      assert.equal(result.automerge, !isBreaking)
+      assert.equal(combinedLabels(result).has('roadmap:required'), isBreaking)
+    }
+  }
+})
+
+test('Node scalar and image share one Docker lookup and advance together', async () => {
+  const lock = await readFile('compatibility.lock.yaml', 'utf8')
+  const scalarManager = config.customManagers.find(
+    (manager) => manager.currentValueTemplate === '{{{nodeVersion}}}-bookworm',
+  )
+  const imageManager = config.customManagers.find((manager) =>
+    manager.matchStrings?.some((pattern) => pattern.includes('[a-z0-9_]+_image')),
+  )
+  const scalar = extractRegex(lock, 'compatibility.lock.yaml', scalarManager).deps
+    .find((dependency) => dependency.depName === 'node')
+  const image = extractRegex(lock, 'compatibility.lock.yaml', imageManager).deps
+    .find((dependency) => dependency.depName === 'node')
+  assert.deepEqual(
+    [scalar, image].map(({ depName, datasource, currentValue }) => ({ depName, datasource, currentValue })),
+    Array(2).fill({ depName: 'node', datasource: 'docker', currentValue: `${lock.match(/^  node: "([^"]+)"$/m)[1]}-bookworm` }),
+  )
+  const replacement = compile(scalarManager.autoReplaceStringTemplate, {
+    ...scalar, newVersion: '24.22.0', newValue: '24.22.0-bookworm',
+  }, false)
+  const updated = lock.replace(scalar.replaceString, replacement)
+  assert.match(updated, /^  node: "24\.22\.0"$/m)
+  assert.equal(extractRegex(updated, 'compatibility.lock.yaml', scalarManager).deps[0].currentValue, '24.22.0-bookworm')
+})
