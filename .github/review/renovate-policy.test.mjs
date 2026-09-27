@@ -121,7 +121,7 @@ test('the Go scalar uses the same Docker lookup as its image references', () => 
   assert.match(scalar.autoReplaceStringTemplate, /go: "\{\{\{newVersion\}\}\}"/)
 
   const genericScalar = config.customManagers.find((manager) =>
-    manager.matchStrings?.some((pattern) => pattern.includes('(?:node|pnpm)')),
+    manager.matchStrings?.some((pattern) => pattern.includes('depName>pnpm)')),
   )
   assert.ok(genericScalar)
   assert.ok(!genericScalar.matchStrings[0].includes('golang-version'))
