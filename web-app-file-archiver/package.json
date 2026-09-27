@@ -2,7 +2,7 @@
   "name": "web-app-file-archiver",
   "version": "1.0.0",
   "private": true,
-  "description": "OpenCloud Web file archiver extension; requires the matching file-archiver backend service (see INSTALL.md)",
+  "description": "Requires the companion file-archiver backend service. Install it before using this extension: https://github.com/cheneyveron/opencloud-file-archiver/blob/main/INSTALL.md",
   "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
