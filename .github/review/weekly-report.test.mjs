@@ -82,6 +82,13 @@ test('embedded Web compatibility covers the approved major, package identity, No
     upstreamWeb: 'v7.1.3',
   }
   assert.deepEqual(openCloudWebCompatibilityFindings(compatible), [])
+  assert.deepEqual(openCloudWebCompatibilityFindings({ ...compatible, selectedPnpm: '12.6.0' }), [])
+  for (const selectedPnpm of ['11.5.1', '10.99.0', '12.6.0-rc.1', 'v12.6.0', 'lookup-failed']) {
+    assert.match(openCloudWebCompatibilityFindings({ ...compatible, selectedPnpm }).join('\n'), /toolchains\.pnpm/)
+  }
+  assert.match(openCloudWebCompatibilityFindings({ ...compatible, upstreamPnpm: '' }).join('\n'), /toolchains\.pnpm/)
+  assert.match(openCloudWebCompatibilityFindings({ ...compatible, selectedNode: '26.0.0' }).join('\n'), /toolchains\.node/)
+
   assert.match(openCloudWebCompatibilityFindings({
     ...compatible,
     upstreamWeb: 'v8.0.0',

@@ -336,6 +336,22 @@ test('upstream pairs run Sunday while application updates wait until Monday', as
   }
 })
 
+test('OpenCloud Web and test helpers stay together without automerging major migrations', async () => {
+  for (const depName of ['@opencloud-eu/extension-sdk', '@opencloud-eu/tsconfig', '@opencloud-eu/web-client', '@opencloud-eu/web-pkg', '@opencloud-eu/web-test-helpers']) {
+    for (const isBreaking of [false, true]) {
+      const result = await applyPackageRules({
+        ...config, manager: 'npm', datasource: 'npm', depName, packageName: depName,
+        packageFile: 'web-app-file-archiver/package.json', versioning: 'semver',
+        currentVersion: '8.0.0', newVersion: isBreaking ? '9.0.0' : '8.1.0',
+        updateType: isBreaking ? 'major' : 'minor', isBreaking, isVulnerabilityAlert: false,
+      })
+      assert.equal(result.groupSlug, 'opencloud-web-sdk-compatibility')
+      assert.equal(result.automerge, !isBreaking)
+      assert.equal(combinedLabels(result).has('roadmap:required'), isBreaking)
+    }
+  }
+})
+
 test('Node scalar and image share one Docker lookup and advance together', async () => {
   const lock = await readFile('compatibility.lock.yaml', 'utf8')
   const scalarManager = config.customManagers.find(
