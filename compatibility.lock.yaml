@@ -23,7 +23,7 @@ toolchains:
   go_image: "golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414"
   # Same stable major as OpenCloud Web's Volta version and no older than it.
   # Exact frontend compatibility is still proven by the release E2E gate.
-  # renovate: datasource=node-version depName=node
+  # renovate: datasource=docker depName=node versioning=docker
   node: "24.21.0"
   # renovate: datasource=docker depName=node versioning=docker
   node_image: "node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"

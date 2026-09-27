@@ -367,7 +367,18 @@
         "/^compatibility\\.lock\\.yaml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>node-version|npm) depName=(?<depName>\\S+)\\n\\s+(?:node|pnpm): \\\"(?<currentValue>[^\\\"]+)\\\""
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>node) versioning=(?<versioning>docker)\\n\\s+node: \\\"(?<nodeVersion>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""
+      ],
+      "currentValueTemplate": "{{{nodeVersion}}}-bookworm",
+      "autoReplaceStringTemplate": "# renovate: datasource=docker depName=node versioning=docker\n  node: \"{{{newVersion}}}\""
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^compatibility\\.lock\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>npm) depName=(?<depName>pnpm)\\n\\s+pnpm: \\\"(?<currentValue>[^\\\"]+)\\\""
       ]
     }
   ]
