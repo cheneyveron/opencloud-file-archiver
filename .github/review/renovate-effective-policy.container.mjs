@@ -351,3 +351,27 @@ test('OpenCloud Web and test helpers stay together without automerging major mig
     }
   }
 })
+
+test('Node scalar and image share one Docker lookup and advance together', async () => {
+  const lock = await readFile('compatibility.lock.yaml', 'utf8')
+  const scalarManager = config.customManagers.find(
+    (manager) => manager.currentValueTemplate === '{{{nodeVersion}}}-bookworm',
+  )
+  const imageManager = config.customManagers.find((manager) =>
+    manager.matchStrings?.some((pattern) => pattern.includes('[a-z0-9_]+_image')),
+  )
+  const scalar = extractRegex(lock, 'compatibility.lock.yaml', scalarManager).deps
+    .find((dependency) => dependency.depName === 'node')
+  const image = extractRegex(lock, 'compatibility.lock.yaml', imageManager).deps
+    .find((dependency) => dependency.depName === 'node')
+  assert.deepEqual(
+    [scalar, image].map(({ depName, datasource, currentValue }) => ({ depName, datasource, currentValue })),
+    Array(2).fill({ depName: 'node', datasource: 'docker', currentValue: `${lock.match(/^  node: "([^"]+)"$/m)[1]}-bookworm` }),
+  )
+  const replacement = compile(scalarManager.autoReplaceStringTemplate, {
+    ...scalar, newVersion: '24.22.0', newValue: '24.22.0-bookworm',
+  }, false)
+  const updated = lock.replace(scalar.replaceString, replacement)
+  assert.match(updated, /^  node: "24\.22\.0"$/m)
+  assert.equal(extractRegex(updated, 'compatibility.lock.yaml', scalarManager).deps[0].currentValue, '24.22.0-bookworm')
+})
