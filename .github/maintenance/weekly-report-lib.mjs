@@ -129,11 +129,11 @@ export function deprecatedPnpmPackages(lockfile) {
   let inPackages = false
   let current = ''
   for (const line of String(lockfile).split('\n')) {
-    if (/^packages:\s*$/.test(line)) {
-      inPackages = true
+    if (/^[^\s#]/.test(line)) {
+      inPackages = /^packages:\s*$/.test(line)
+      current = ''
       continue
     }
-    if (inPackages && /^snapshots:\s*$/.test(line)) break
     if (!inPackages) continue
     const packageLine = line.match(/^  (.+):\s*$/)
     if (packageLine) {
@@ -155,15 +155,25 @@ export function deprecatedPnpmPackages(lockfile) {
 
 export function lockedDirectPnpmVersions(lockfile) {
   const versions = new Map()
+  let inImporters = false
   let inRootImporter = false
   let inDependencies = false
   let dependency = ''
   for (const line of String(lockfile).split('\n')) {
-    if (/^  \.:\s*$/.test(line)) {
-      inRootImporter = true
+    if (/^[^\s#]/.test(line)) {
+      inImporters = /^importers:\s*$/.test(line)
+      inRootImporter = false
+      inDependencies = false
+      dependency = ''
       continue
     }
-    if (inRootImporter && /^packages:\s*$/.test(line)) break
+    if (!inImporters) continue
+    if (/^  \S/.test(line)) {
+      inRootImporter = /^  \.:\s*$/.test(line)
+      inDependencies = false
+      dependency = ''
+      continue
+    }
     if (!inRootImporter) continue
     if (/^    (?:dependencies|devDependencies|optionalDependencies):\s*$/.test(line)) {
       inDependencies = true

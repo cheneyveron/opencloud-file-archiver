@@ -307,3 +307,58 @@ test('an abandoned Renovate PR cannot remain a release blocker through stale lab
     labels: [{ name: 'dependencies' }, { name: 'release:weekly' }],
   }), true)
 })
+
+test('pnpm 12 reads app versions after the separate package-manager lock document', () => {
+  const lockfile = `---
+lockfileVersion: '9.0'
+importers:
+  .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.6.0
+        version: 12.6.0
+packages:
+  pnpm@12.6.0: {}
+snapshots:
+  pnpm@12.6.0: {}
+---
+lockfileVersion: '9.0'
+importers:
+  .:
+    devDependencies:
+      '@scope/tool':
+        specifier: ^8.0.0
+        version: 8.0.0(peer@4.0.0)
+    optionalDependencies:
+      optional:
+        specifier: ^2.0.0
+        version: 2.1.0
+  packages/other:
+    dependencies:
+      '@scope/tool':
+        specifier: ^9.0.0
+        version: 9.0.0
+packages:
+  '@scope/tool@8.0.0':
+    deprecated: Use the replacement
+snapshots:
+  '@scope/tool@8.0.0': {}
+`
+  assert.deepEqual([...lockedDirectPnpmVersions(lockfile)], [
+    ['@scope/tool', '8.0.0'], ['optional', '2.1.0'],
+  ])
+  assert.deepEqual(deprecatedPnpmPackages(lockfile), [
+    { dependency: '@scope/tool', version: '8.0.0', note: 'Use the replacement' },
+  ])
+})
+
+test('release reporting resolves every declared dependency from the tracked lockfile', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const root = new URL('../../web-app-file-archiver/', import.meta.url)
+  const pkg = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+  const versions = lockedDirectPnpmVersions(await readFile(new URL('pnpm-lock.yaml', root), 'utf8'))
+  const declared = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies }
+  assert.deepEqual([...versions.keys()].sort(), Object.keys(declared).sort())
+  for (const [name, version] of versions) assert.match(version, /^\d+\.\d+\.\d+$/, name)
+})
