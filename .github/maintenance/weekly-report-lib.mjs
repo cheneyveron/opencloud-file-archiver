@@ -87,8 +87,12 @@ export function openCloudWebCompatibilityFindings({
   if (!isSameMajorStableVersionAtLeast(upstreamNode, selectedNode)) {
     findings.push(`Embedded OpenCloud Web uses Volta Node baseline ${upstreamNode || 'missing'}; toolchains.node must be no older in the same major, but is ${selectedNode || 'missing'}`)
   }
-  if (!isSameMajorStableVersionAtLeast(upstreamPnpm, selectedPnpm)) {
-    findings.push(`Embedded OpenCloud Web uses pnpm baseline ${upstreamPnpm || 'missing'}; toolchains.pnpm must be no older in the same major, but is ${selectedPnpm || 'missing'}`)
+  const pnpmBaseline = stableVersionTriplet(upstreamPnpm)
+  const pnpmSelected = stableVersionTriplet(selectedPnpm)
+  const compatiblePnpm = pnpmBaseline && pnpmSelected &&
+    (pnpmSelected[0] > pnpmBaseline[0] || isSameMajorStableVersionAtLeast(upstreamPnpm, selectedPnpm))
+  if (!compatiblePnpm) {
+    findings.push(`Embedded OpenCloud Web uses pnpm baseline ${upstreamPnpm || 'missing'}; toolchains.pnpm must be a stable version no older, but is ${selectedPnpm || 'missing'}`)
   }
   return findings
 }

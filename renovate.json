@@ -298,6 +298,21 @@
       ],
       "automerge": true,
       "automergeType": "pr"
+    },
+    {
+      "description": "Keep OpenCloud Web packages on one compatible release, including reviewed major migrations",
+      "matchPackageNames": [
+        "@opencloud-eu/extension-sdk",
+        "@opencloud-eu/tsconfig",
+        "@opencloud-eu/web-client",
+        "@opencloud-eu/web-pkg",
+        "@opencloud-eu/web-test-helpers"
+      ],
+      "matchJsonata": [
+        "$not(isVulnerabilityAlert = true)"
+      ],
+      "groupName": "OpenCloud Web SDK compatibility",
+      "groupSlug": "opencloud-web-sdk-compatibility"
     }
   ],
   "customManagers": [
