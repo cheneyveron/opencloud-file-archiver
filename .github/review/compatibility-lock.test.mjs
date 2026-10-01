@@ -29,32 +29,24 @@ async function fixture(t, transform = (source) => source) {
   return spawnSync(process.execPath, [validator], { cwd: root, encoding: 'utf8' })
 }
 
-test('compatibility lock exposes the approved embedded Web major', async (t) => {
-  const result = await fixture(t)
+test('build lock does not require a stored OpenCloud release or Web major allowance', async (t) => {
+  const result = await fixture(t, (source) => source
+    .replace(/^opencloud:\n(?:[^\n]*\n)*?(?=toolchains:)/m, '')
+    .replace(/^  go_module_minimum:.*\n/m, ''))
   assert.equal(result.status, 0, result.stderr)
-  assert.equal(JSON.parse(result.stdout).opencloud_web_major, '7')
+  const resolved = JSON.parse(result.stdout)
+  assert.ok(resolved.go_image.startsWith(`golang:${resolved.go_version}-`))
+  assert.equal(Object.hasOwn(resolved, 'opencloud_image'), false)
 })
 
-test('embedded Web major is required exactly once', async (t) => {
-  const missing = await fixture(t, (source) => source.replace(/^  embedded_web_major:.*\n/m, ''))
-  assert.notEqual(missing.status, 0)
-  assert.match(missing.stderr, /embedded_web_major/)
-
-  const duplicate = await fixture(t, (source) => source.replace(
-    /^  embedded_web_major:.*$/m,
-    '  embedded_web_major: "7"\n  embedded_web_major: "7"',
-  ))
-  assert.notEqual(duplicate.status, 0)
-  assert.match(duplicate.stderr, /duplicate opencloud\.embedded_web_major/)
+test('build lock rejects compiler and image mismatches', async (t) => {
+  const result = await fixture(t, (source) => source.replace(/^  go:.*$/m, '  go: "1.1.0"'))
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /go_image tag must match/)
 })
 
-test('embedded Web major rejects non-canonical roadmap allowances', async (t) => {
-  for (const invalid of ['07', 'v7', '7.0']) {
-    const result = await fixture(t, (source) => source.replace(
-      /^  embedded_web_major:.*$/m,
-      `  embedded_web_major: "${invalid}"`,
-    ))
-    assert.notEqual(result.status, 0, invalid)
-    assert.match(result.stderr, /canonical non-negative integer/, invalid)
-  }
+test('build lock rejects duplicate compiler versions', async (t) => {
+  const result = await fixture(t, (source) => source.replace(/^  go:.*$/m, '$&\n$&'))
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /duplicate toolchains.go/)
 })

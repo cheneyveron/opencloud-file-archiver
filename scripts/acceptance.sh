@@ -11,7 +11,6 @@ SERVICE_DIR="$ROOT_DIR/file-archiver-service"
 
 FRONTEND_ZIP=""
 BACKEND_IMAGE=""
-OPEN_CLOUD_IMAGE_ARG=""
 KEEP_ENVIRONMENT=${ACCEPTANCE_KEEP_ENVIRONMENT:-0}
 
 usage() {
@@ -26,7 +25,6 @@ usage() {
     'Options:' \
     '  --frontend-zip PATH    Install and test this already-built release ZIP.' \
     '  --backend-image IMAGE  Install and test this already-built backend image.' \
-    '  --opencloud-image REF  Override compatibility.lock.yaml for local debugging.' \
     '  --keep-environment     Keep the disposable Compose environment after exit.' \
     '  -h, --help             Show this help.'
 }
@@ -41,7 +39,6 @@ usage() {
 # Options:
 #   --frontend-zip PATH    Install and test this already-built release ZIP.
 #   --backend-image IMAGE  Install and test this already-built backend image.
-#   --opencloud-image REF  Override compatibility.lock.yaml for local debugging.
 #   --keep-environment     Keep the disposable Compose environment after exit.
 #   -h, --help             Show this help.
 #
@@ -59,11 +56,6 @@ while (($#)); do
     --backend-image)
       [[ $# -ge 2 ]] || { echo "missing value for --backend-image" >&2; exit 2; }
       BACKEND_IMAGE=$2
-      shift 2
-      ;;
-    --opencloud-image)
-      [[ $# -ge 2 ]] || { echo "missing value for --opencloud-image" >&2; exit 2; }
-      OPEN_CLOUD_IMAGE_ARG=$2
       shift 2
       ;;
     --keep-environment)
@@ -120,6 +112,7 @@ yaml_value() {
 
 require_command awk
 require_command curl
+require_command cmp
 require_command flock
 require_command jq
 require_command node
@@ -131,20 +124,16 @@ require_command tar
 
 [[ -f "$LOCK_FILE" ]] || die "compatibility lock is missing: $LOCK_FILE"
 (cd "$ROOT_DIR" && node .github/compatibility/read-lock.mjs >/dev/null)
-[[ $(yaml_value opencloud channel) == stable ]] || die "compatibility lock must target the stable OpenCloud channel"
 
 GO_VERSION=$(yaml_value toolchains go)
 NODE_VERSION=$(yaml_value toolchains node)
 PNPM_VERSION=$(yaml_value toolchains pnpm)
-GO_MODULE_MINIMUM=$(yaml_value toolchains go_module_minimum)
 GO_TOOL_IMAGE=$(yaml_value toolchains go_image)
 NODE_TOOL_IMAGE=$(yaml_value toolchains node_image)
 PLAYWRIGHT_TOOL_IMAGE=$(yaml_value toolchains playwright_image)
 CADDY_TOOL_IMAGE=$(yaml_value toolchains caddy_image)
 TRIVY_TOOL_IMAGE=$(yaml_value toolchains trivy_image)
 GOVULNCHECK_VERSION=$(yaml_value toolchains govulncheck)
-LOCKED_OPEN_CLOUD_IMAGE=$(yaml_value opencloud image)
-OPEN_CLOUD_IMAGE=${OPEN_CLOUD_IMAGE_ARG:-${OPENCLOUD_IMAGE:-$LOCKED_OPEN_CLOUD_IMAGE}}
 
 [[ -n "$GO_VERSION" ]] || die "toolchains.go is missing from compatibility.lock.yaml"
 [[ -n "$NODE_VERSION" ]] || die "toolchains.node is missing from compatibility.lock.yaml"
@@ -155,13 +144,6 @@ OPEN_CLOUD_IMAGE=${OPEN_CLOUD_IMAGE_ARG:-${OPENCLOUD_IMAGE:-$LOCKED_OPEN_CLOUD_I
 [[ -n "$CADDY_TOOL_IMAGE" ]] || die "toolchains.caddy_image is missing from compatibility.lock.yaml"
 [[ -n "$TRIVY_TOOL_IMAGE" ]] || die "toolchains.trivy_image is missing from compatibility.lock.yaml"
 [[ -n "$GOVULNCHECK_VERSION" ]] || die "toolchains.govulncheck is missing from compatibility.lock.yaml"
-[[ -n "$OPEN_CLOUD_IMAGE" ]] || die "opencloud.image is missing from compatibility.lock.yaml"
-
-MODULE_GO_VERSION=$(awk '$1 == "go" { print $2; exit }' "$SERVICE_DIR/go.mod")
-[[ -n "$MODULE_GO_VERSION" ]] || die "file-archiver-service/go.mod has no go directive"
-if [[ -n "$GO_MODULE_MINIMUM" && "$MODULE_GO_VERSION" != "$GO_MODULE_MINIMUM" ]]; then
-  die "go.mod minimum $MODULE_GO_VERSION differs from locked minimum $GO_MODULE_MINIMUM"
-fi
 
 PACKAGE_MANAGER=$(jq -r '.packageManager // empty' "$WEB_SOURCE_DIR/package.json")
 [[ "$PACKAGE_MANAGER" == "pnpm@$PNPM_VERSION" ]] || \
@@ -198,13 +180,14 @@ FAILURE_RESULT_DIR="/tmp/opencloud-file-archiver-acceptance-results-$RUN_ID"
 WEB_WORK_DIR="$RUN_DIR/web-app-file-archiver"
 APP_EXTRACT_DIR="$RUN_DIR/apps"
 ARTIFACT_DIR="$RUN_DIR/artifacts"
+WEB_ASSETS_DIR="$RUN_DIR/opencloud-web"
 COMPOSE_ENV_FILE="$RUN_DIR/compose.env"
 PROJECT_NAME="archiver-acceptance-$$-$RANDOM"
 LOCAL_BACKEND_IMAGE="opencloud-file-archiver-acceptance:$RUN_ID"
 COMPOSE_STARTED=0
 BUILT_BACKEND_IMAGE=0
 
-mkdir -p "$RESULT_DIR" "$WEB_WORK_DIR" "$APP_EXTRACT_DIR" "$ARTIFACT_DIR"
+mkdir -p "$RESULT_DIR" "$WEB_WORK_DIR" "$APP_EXTRACT_DIR" "$ARTIFACT_DIR" "$WEB_ASSETS_DIR"
 
 compose() {
   "${DOCKER[@]}" compose --env-file "$COMPOSE_ENV_FILE" \
@@ -248,6 +231,27 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
+
+log "Discover the latest official OpenCloud backend and Web releases"
+(cd "$ROOT_DIR" && node .github/compatibility/resolve-opencloud.mjs) >"$RESULT_DIR/opencloud-target.json"
+OPEN_CLOUD_IMAGE=$(jq -er .opencloud_image "$RESULT_DIR/opencloud-target.json")
+WEB_RELEASE=$(jq -er .web_release "$RESULT_DIR/opencloud-target.json")
+WEB_URL=$(jq -er .web_url "$RESULT_DIR/opencloud-target.json")
+WEB_SHA256=$(jq -er .web_sha256 "$RESULT_DIR/opencloud-target.json")
+log "Install official OpenCloud Web $WEB_RELEASE assets with their published SHA256"
+curl --fail --silent --show-error --location "$WEB_URL" --output "$ARTIFACT_DIR/opencloud-web.tar.gz"
+printf '%s  %s\n' "$WEB_SHA256" "$ARTIFACT_DIR/opencloud-web.tar.gz" | sha256sum --check --status
+tar -tzf "$ARTIFACT_DIR/opencloud-web.tar.gz" | awk '
+  /^\// || /(^|\/)\.\.($|\/)/ { invalid = 1 }
+  END { exit invalid }
+' || die "OpenCloud Web release contains an unsafe asset path"
+tar -tvzf "$ARTIFACT_DIR/opencloud-web.tar.gz" | awk '
+  substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { invalid = 1 }
+  END { exit invalid }
+' || die "OpenCloud Web release contains non-file assets"
+tar -xzf "$ARTIFACT_DIR/opencloud-web.tar.gz" --directory "$WEB_ASSETS_DIR" --no-same-owner --no-same-permissions
+test -f "$WEB_ASSETS_DIR/index.html" || die "OpenCloud Web release has no index.html"
+chmod -R a+rX "$WEB_ASSETS_DIR"
 
 log "Copy frontend source into disposable workspace"
 tar --exclude='./node_modules' --exclude='./dist' --exclude='./.__mf__temp' \
@@ -365,6 +369,7 @@ export E2E_ADMIN_PASSWORD="Archiver-Acceptance-${RUN_ID}!"
 export E2E_WEB_CONFIG="$RUN_DIR/opencloud.web.config.json"
 export E2E_APPS_CONFIG="$ROOT_DIR/tests/e2e/opencloud.apps.yaml"
 export E2E_APP_DIR="$APP_EXTRACT_DIR/file-archiver"
+export E2E_WEB_ASSETS="$WEB_ASSETS_DIR"
 export CADDY_IMAGE="$CADDY_TOOL_IMAGE"
 
 printf '%s\n' \
@@ -376,6 +381,7 @@ printf '%s\n' \
   "E2E_WEB_CONFIG=$E2E_WEB_CONFIG" \
   "E2E_APPS_CONFIG=$E2E_APPS_CONFIG" \
   "E2E_APP_DIR=$E2E_APP_DIR" \
+  "E2E_WEB_ASSETS=$E2E_WEB_ASSETS" \
   "CADDY_IMAGE=${CADDY_IMAGE:-}" >"$COMPOSE_ENV_FILE"
 
 jq -n --arg url "$E2E_BASE_URL" '{
@@ -395,7 +401,7 @@ jq -n --arg url "$E2E_BASE_URL" '{
 # keeping compose.env and its admin password protected by the process umask.
 chmod 0644 "$E2E_WEB_CONFIG"
 
-log "Start one disposable OpenCloud stable environment"
+log "Start OpenCloud $OPEN_CLOUD_IMAGE with official Web $WEB_RELEASE"
 COMPOSE_STARTED=1
 compose up --detach --remove-orphans
 
@@ -428,6 +434,22 @@ done
 curl --resolve "opencloud.test:$E2E_PORT:127.0.0.1" \
   --silent --show-error --insecure --fail \
   "$E2E_BASE_URL/web/apps/file-archiver/manifest.json" >/dev/null
+curl --resolve "opencloud.test:$E2E_PORT:127.0.0.1" \
+  --silent --show-error --insecure --fail \
+  "$E2E_BASE_URL/" --output "$RESULT_DIR/served-index.html"
+WEB_ENTRY=$(node --input-type=module -e '
+  import assert from "node:assert/strict"
+  import { readFileSync } from "node:fs"
+  const entry = readFileSync(process.argv[1], "utf8").match(/<script\b[^>]*\btype="module"[^>]*\bsrc="([^"]+)"/)?.[1]
+  assert.ok(entry && /^\.\/js\/[a-zA-Z0-9._-]+\.mjs$/.test(entry), "Web release has no safe module entry")
+  assert.ok(readFileSync(process.argv[2], "utf8").includes(`src="${entry}"`), "OpenCloud served a different Web entry")
+  process.stdout.write(entry.slice(2))
+' "$WEB_ASSETS_DIR/index.html" "$RESULT_DIR/served-index.html")
+curl --resolve "opencloud.test:$E2E_PORT:127.0.0.1" \
+  --silent --show-error --insecure --fail \
+  "$E2E_BASE_URL/$WEB_ENTRY" --output "$RESULT_DIR/served-web-entry.mjs"
+cmp --silent "$WEB_ASSETS_DIR/$WEB_ENTRY" "$RESULT_DIR/served-web-entry.mjs" || \
+  die "OpenCloud did not serve the accepted latest Web module"
 
 PLAYWRIGHT_VERSION=$(awk '
   match($0, /@playwright\/test@[0-9]+\.[0-9]+\.[0-9]+/) {
@@ -465,7 +487,7 @@ FRONTEND_SHA256=$(sha256sum "$FRONTEND_ZIP" | awk '{ print $1 }')
 BACKEND_IMAGE_ID=$("${DOCKER[@]}" image inspect --format '{{.Id}}' "$BACKEND_IMAGE")
 jq -n \
   --arg status passed \
-  --arg opencloud_image "$OPEN_CLOUD_IMAGE" \
+  --slurpfile upstream "$RESULT_DIR/opencloud-target.json" \
   --arg frontend_zip "$FRONTEND_ZIP" \
   --arg frontend_sha256 "$FRONTEND_SHA256" \
   --arg backend_image "$BACKEND_IMAGE" \
@@ -478,15 +500,15 @@ jq -n \
   '{
     status: $status,
     completed_at_utc: $completed_at,
-    opencloud_image: $opencloud_image,
+    upstream: $upstream[0],
     frontend: {zip: $frontend_zip, sha256: $frontend_sha256},
     backend: {image: $backend_image, image_id: $backend_image_id},
     toolchains: {go: $go, node: $node, pnpm: $pnpm, playwright: $playwright}
   }' >"$RESULT_DIR/resolved-components.json"
 
-printf '# Full acceptance: PASSED\n\n- OpenCloud: `%s`\n- Frontend SHA256: `%s`\n- Backend image: `%s`\n' \
-  "$OPEN_CLOUD_IMAGE" "$FRONTEND_SHA256" "$BACKEND_IMAGE" >"$RESULT_DIR/summary.md"
+printf '# Full acceptance: PASSED\n\n- OpenCloud: `%s`\n- OpenCloud Web: `%s` (SHA256 `%s`)\n- Frontend SHA256: `%s`\n- Backend image: `%s`\n' \
+  "$OPEN_CLOUD_IMAGE" "$WEB_RELEASE" "$WEB_SHA256" "$FRONTEND_SHA256" "$BACKEND_IMAGE" >"$RESULT_DIR/summary.md"
 
 log "FULL ACCEPTANCE PASSED"
-printf 'OpenCloud: %s\nFrontend ZIP: %s\nBackend image: %s\n' \
-  "$OPEN_CLOUD_IMAGE" "$FRONTEND_ZIP" "$BACKEND_IMAGE"
+printf 'OpenCloud: %s\nOpenCloud Web: %s\nFrontend ZIP: %s\nBackend image: %s\n' \
+  "$OPEN_CLOUD_IMAGE" "$WEB_RELEASE" "$FRONTEND_ZIP" "$BACKEND_IMAGE"

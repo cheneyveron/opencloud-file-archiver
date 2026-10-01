@@ -11,12 +11,14 @@ services:
       PROXY_ENABLE_BASIC_AUTH: "true"
       PROXY_HTTP_ADDR: 0.0.0.0:9200
       WEB_ASSET_APPS_PATH: /web/apps
+      WEB_ASSET_CORE_PATH: /web/core
       WEB_UI_CONFIG_FILE: /web/config.json
     volumes:
       - opencloud-config:/etc/opencloud
       - ${E2E_WEB_CONFIG:?set E2E_WEB_CONFIG}:/web/config.json:ro
       - ${E2E_APPS_CONFIG:?set E2E_APPS_CONFIG}:/etc/opencloud/apps.yaml:ro
       - ${E2E_APP_DIR:?set E2E_APP_DIR}:/web/apps/file-archiver:ro
+      - ${E2E_WEB_ASSETS:?set E2E_WEB_ASSETS to the latest official Web assets}:/web/core:ro
     deploy:
       resources:
         limits:

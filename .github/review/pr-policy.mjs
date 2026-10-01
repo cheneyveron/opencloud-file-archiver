@@ -75,27 +75,8 @@ const basePolicyFile = (file) => {
 const scopes = JSON.parse(basePolicyFile('.github/review/roadmap-scopes.json'))
 const roadmap = basePolicyFile('ROADMAP.md')
 
-const githubRaw = async (repository, path, ref) => {
-  const token = process.env.GITHUB_TOKEN
-  if (!token) throw new Error('GITHUB_TOKEN is required for upstream compatibility review')
-  const endpoint = `${process.env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repository}/contents/${path}?ref=${encodeURIComponent(ref)}`
-  const response = await fetch(endpoint, {
-    signal: AbortSignal.timeout(60_000),
-    headers: {
-      Accept: 'application/vnd.github.raw+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2026-03-10'
-    }
-  })
-  if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${repository}/${path} at ${ref}`)
-  return response.text()
-}
-
-const lockScalar = (source, key) => String(source).match(new RegExp(`^  ${key}: "([^"]+)"$`, 'm'))?.[1] || ''
-
-const reviewProposedCompatibility = async () => {
+const reviewProposedCompatibility = () => {
   if (!changedFiles.includes('compatibility.lock.yaml')) return
-
   try {
     const validator = basePolicyFile('.github/compatibility/read-lock.mjs')
     execFileSync(process.execPath, ['--input-type=module', '--eval', validator], {
@@ -103,66 +84,11 @@ const reviewProposedCompatibility = async () => {
       maxBuffer: 20 * 1024 * 1024
     })
   } catch (error) {
-    errors.push(`Proposed compatibility lock is invalid: ${String(error.stderr || error.message || error).trim()}`)
-    return
-  }
-
-  const proposed = git('show', `${head}:compatibility.lock.yaml`)
-  const previous = basePolicyFile('compatibility.lock.yaml')
-  const librarySource = basePolicyFile('.github/maintenance/weekly-report-lib.mjs')
-  const library = await import(`data:text/javascript;base64,${Buffer.from(librarySource).toString('base64')}`)
-  const approvedWebMajor = lockScalar(proposed, 'embedded_web_major')
-  errors.push(...library.webMajorAllowanceChangeFindings({
-    automatedAuthor: library.isAutomatedDependencyPullRequest({
-      authorLogin: event.pull_request?.user?.login,
-      authorType: event.pull_request?.user?.type,
-      headRef: event.pull_request?.head?.ref,
-    }),
-    currentMajor: lockScalar(previous, 'embedded_web_major'),
-    labels,
-    proposedMajor: approvedWebMajor,
-  }).map((finding) => `${finding}.`))
-
-  const upstreamRepository = lockScalar(proposed, 'repository')
-  const stableRelease = lockScalar(proposed, 'stable_release')
-  if (upstreamRepository !== 'opencloud-eu/opencloud' ||
-      !/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(stableRelease)) {
-    errors.push('The proposed OpenCloud repository or stable release is not a trusted strict target.')
-    return
-  }
-
-  try {
-    const makefile = await githubRaw(upstreamRepository, 'services/web/Makefile', stableRelease)
-    const versions = [...makefile.matchAll(/^WEB_ASSETS_VERSION\s*=\s*(\S+)\s*$/gm)]
-    if (versions.length !== 1) {
-      errors.push('The proposed OpenCloud target must declare exactly one WEB_ASSETS_VERSION.')
-      return
-    }
-    const upstreamWeb = versions[0][1]
-    if (!/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(upstreamWeb)) {
-      errors.push(`The proposed OpenCloud target embeds non-stable Web version ${upstreamWeb}.`)
-      return
-    }
-
-    const packageJson = JSON.parse(await githubRaw('opencloud-eu/web', 'package.json', upstreamWeb))
-    const pnpm = String(packageJson?.packageManager || '')
-      .match(/^pnpm@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/)?.[1] || ''
-    const findings = library.openCloudWebCompatibilityFindings({
-      approvedWebMajor,
-      selectedNode: lockScalar(proposed, 'node'),
-      selectedPnpm: lockScalar(proposed, 'pnpm'),
-      upstreamNode: packageJson?.volta?.node || '',
-      upstreamPackageVersion: packageJson?.version || '',
-      upstreamPnpm: pnpm,
-      upstreamWeb,
-    })
-    errors.push(...findings.map((finding) => `OpenCloud compatibility: ${finding}.`))
-  } catch (error) {
-    errors.push(`Could not verify the proposed OpenCloud compatibility target: ${error.message || error}`)
+    errors.push(`Proposed build lock is invalid: ${String(error.stderr || error.message || error).trim()}`)
   }
 }
 
-await reviewProposedCompatibility()
+reviewProposedCompatibility()
 
 const roadmapIds = [...new Set(body.match(/RM-\d{3}/g) || [])]
 if (roadmapIds.length === 0) {

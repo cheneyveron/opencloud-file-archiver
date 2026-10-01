@@ -377,8 +377,6 @@ test('Go compiler scalar and both image refs share one Docker lookup', async () 
     }),
   )
 
-  const minimumLine = lock.match(/^  go_module_minimum: "[^"]+"$/m)?.[0]
-  assert.ok(minimumLine)
   const replacement = compile(scalarManager.autoReplaceStringTemplate, {
     ...scalar,
     newVersion: '1.26.4',
@@ -391,60 +389,12 @@ test('Go compiler scalar and both image refs share one Docker lookup', async () 
     scalarManager,
   ).deps.find((dependency) => dependency.depName === 'golang')
   assert.equal(updatedScalar.currentValue, '1.26.4-alpine')
-  assert.ok(updated.includes(minimumLine))
 })
-
-test('OpenCloud release marker and image share one Docker tag lookup', async () => {
-  const lock = await readFile('compatibility.lock.yaml', 'utf8')
-  const lockedRelease = lock.match(/^  stable_release: "v([^"]+)"$/m)?.[1]
-  assert.ok(lockedRelease)
-
-  const scalarManager = config.customManagers.find(
-    (manager) => manager.currentValueTemplate === '{{{openCloudVersion}}}',
-  )
-  const imageManager = config.customManagers.find((manager) =>
-    manager.matchStrings?.some((pattern) =>
-      pattern.includes('image:') &&
-      pattern.includes('opencloudeu/opencloud') &&
-      pattern.includes('currentDigest')
-    ),
-  )
-  assert.ok(scalarManager)
-  assert.ok(imageManager)
-
-  const scalar = extractRegex(lock, 'compatibility.lock.yaml', scalarManager).deps
-    .find((dependency) => dependency.depName === 'opencloudeu/opencloud')
-  const image = extractRegex(lock, 'compatibility.lock.yaml', imageManager).deps
-    .find((dependency) => dependency.depName === 'opencloudeu/opencloud')
-
-  assert.deepEqual(
-    [scalar, image].map(({ depName, datasource, currentValue }) => ({
-      depName,
-      datasource,
-      currentValue,
-    })),
-    Array(2).fill({
-      depName: 'opencloudeu/opencloud',
-      datasource: 'docker',
-      currentValue: lockedRelease,
-    }),
-  )
-
-  const replacement = compile(scalarManager.autoReplaceStringTemplate, {
-    ...scalar,
-    newVersion: '7.2.3',
-    newValue: '7.2.3',
-  }, false)
-  const updated = lock.replace(scalar.replaceString, replacement)
-  assert.match(updated, /^  stable_release: "v7\.2\.3"$/m)
-})
-
 
 test('upstream pairs run Sunday while application updates wait until Monday', async (t) => {
   t.mock.timers.enable({ apis: ['Date'] })
   const { isScheduledNow } = await import(renovateModule('dist/workers/repository/update/branch/schedule.js'))
   for (const [depName, manager, packageFile, day] of [
-    ['opencloudeu/opencloud', 'custom.regex', 'compatibility.lock.yaml', 0],
     ['golang', 'custom.regex', 'compatibility.lock.yaml', 0],
     ['golang', 'dockerfile', 'file-archiver-service/Dockerfile', 0],
     ['node', 'custom.regex', 'compatibility.lock.yaml', 0],

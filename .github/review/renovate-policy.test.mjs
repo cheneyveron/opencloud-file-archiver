@@ -12,6 +12,15 @@ function rule(description) {
   return match
 }
 
+test('OpenCloud runtime targets are discovered instead of stored in Renovate managers', () => {
+  assert.ok(config.customManagers.every((manager) =>
+    manager.matchStrings.every((pattern) => !/stable_release|opencloudeu\/opencloud/.test(pattern)),
+  ))
+  assert.ok(config.packageRules.every((candidate) =>
+    !(candidate.matchPackageNames || []).includes('opencloudeu/opencloud'),
+  ))
+})
+
 test('the maintained NanoID cap applies only to the legacy pnpm security override', () => {
   const legacyNanoid = rule(
     'Keep the legacy NanoID security override on the maintained 3.x line',
@@ -140,17 +149,4 @@ test('the Go scalar uses the same Docker lookup as its image references', () => 
   )
   assert.ok(genericScalar)
   assert.ok(!genericScalar.matchStrings[0].includes('golang-version'))
-})
-
-test('the OpenCloud release scalar and image share the Docker tag source', () => {
-  const scalar = config.customManagers.find(
-    (manager) => manager.currentValueTemplate === '{{{openCloudVersion}}}',
-  )
-  assert.ok(scalar)
-  assert.match(scalar.matchStrings[0], /datasource=\(\?<datasource>docker\)/)
-  assert.match(scalar.matchStrings[0], /depName>opencloudeu\/opencloud/)
-  assert.match(scalar.autoReplaceStringTemplate, /stable_release: "v\{\{\{newVersion\}\}\}"/)
-
-  const target = rule('Keep the OpenCloud release marker and exact container digest in one PR')
-  assert.deepEqual(target.matchPackageNames, ['opencloudeu/opencloud'])
 })

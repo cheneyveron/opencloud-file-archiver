@@ -5,11 +5,6 @@ const source = readFileSync(lockPath, 'utf8')
 if (source.includes('\t')) throw new Error(`${lockPath} must not contain tabs`)
 
 const required = new Map([
-  ['opencloud.repository', null],
-  ['opencloud.channel', null],
-  ['opencloud.embedded_web_major', null],
-  ['opencloud.stable_release', null],
-  ['opencloud.image', null],
   ['toolchains.go', null],
   ['toolchains.go_image', null],
   ['toolchains.node', null],
@@ -22,15 +17,14 @@ const required = new Map([
   ['toolchains.buildx', null],
   ['toolchains.buildkit_image', null],
   ['toolchains.binfmt_image', null],
-  ['toolchains.renovate_image', null],
-  ['toolchains.go_module_minimum', null]
+  ['toolchains.renovate_image', null]
 ])
 
-const targetSections = new Set(['opencloud', 'toolchains'])
+const targetSections = new Set(['toolchains'])
 const sectionCounts = new Map()
 let section = ''
 for (const [index, line] of source.split('\n').entries()) {
-  const targetHeader = line.match(/^(opencloud|toolchains)\s*:/)
+  const targetHeader = line.match(/^(toolchains)\s*:/)
   if (targetHeader && line !== `${targetHeader[1]}:`) {
     throw new Error(`${lockPath}:${index + 1}: ${targetHeader[1]} must use a plain block mapping`)
   }
@@ -70,20 +64,10 @@ const value = (key) => required.get(key)
 const semver = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/
 const dockerDigest = /^[a-z0-9][a-z0-9./-]*:[A-Za-z0-9][A-Za-z0-9._-]*@sha256:[a-f0-9]{64}$/
 
-if (value('opencloud.repository') !== 'opencloud-eu/opencloud') {
-  throw new Error('opencloud.repository must be opencloud-eu/opencloud')
-}
-if (value('opencloud.channel') !== 'stable') throw new Error('opencloud.channel must be stable')
-if (!/^(?:0|[1-9][0-9]*)$/.test(value('opencloud.embedded_web_major'))) {
-  throw new Error('opencloud.embedded_web_major must be a canonical non-negative integer')
-}
-if (!/^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(value('opencloud.stable_release'))) {
-  throw new Error('opencloud.stable_release must be strict vX.Y.Z')
-}
-for (const key of [...required.keys()].filter((item) => item.endsWith('_image') || item === 'opencloud.image')) {
+for (const key of [...required.keys()].filter((item) => item.endsWith('_image'))) {
   if (!dockerDigest.test(value(key))) throw new Error(`${key} must be an exact tag@sha256 Docker reference`)
 }
-for (const key of ['toolchains.go', 'toolchains.node', 'toolchains.pnpm', 'toolchains.go_module_minimum']) {
+for (const key of ['toolchains.go', 'toolchains.node', 'toolchains.pnpm']) {
   if (!semver.test(value(key))) throw new Error(`${key} must be strict X.Y.Z`)
 }
 for (const key of ['toolchains.govulncheck', 'toolchains.buildx']) {
@@ -92,10 +76,6 @@ for (const key of ['toolchains.govulncheck', 'toolchains.buildx']) {
   }
 }
 
-const stableVersion = value('opencloud.stable_release').slice(1)
-if (!value('opencloud.image').startsWith(`opencloudeu/opencloud:${stableVersion}@sha256:`)) {
-  throw new Error('opencloud.image tag must equal opencloud.stable_release')
-}
 if (!value('toolchains.go_image').startsWith(`golang:${value('toolchains.go')}-`)) {
   throw new Error('toolchains.go_image tag must match toolchains.go')
 }
@@ -106,10 +86,6 @@ if (!value('toolchains.node_image').startsWith(`node:${value('toolchains.node')}
 const packageJson = JSON.parse(readFileSync('web-app-file-archiver/package.json', 'utf8'))
 if (packageJson.packageManager !== `pnpm@${value('toolchains.pnpm')}`) {
   throw new Error('package.json packageManager must match toolchains.pnpm')
-}
-const goMod = readFileSync('file-archiver-service/go.mod', 'utf8')
-if (goMod.match(/^go\s+(\S+)/m)?.[1] !== value('toolchains.go_module_minimum')) {
-  throw new Error('go.mod directive must match toolchains.go_module_minimum')
 }
 const dockerfile = readFileSync('file-archiver-service/Dockerfile', 'utf8')
 if (dockerfile.match(/^FROM\s+(\S+)\s+AS\s+build$/m)?.[1] !== value('toolchains.go_image')) {
@@ -122,8 +98,6 @@ if (!playwrightVersion || !value('toolchains.playwright_image').includes(`:v${pl
 }
 
 const output = {
-  opencloud_image: value('opencloud.image'),
-  opencloud_web_major: value('opencloud.embedded_web_major'),
   go_version: value('toolchains.go'),
   go_image: value('toolchains.go_image'),
   node_version: value('toolchains.node'),
@@ -136,8 +110,7 @@ const output = {
   buildx_version: value('toolchains.buildx'),
   buildkit_image: value('toolchains.buildkit_image'),
   binfmt_image: value('toolchains.binfmt_image'),
-  renovate_image: value('toolchains.renovate_image'),
-  go_module_minimum: value('toolchains.go_module_minimum')
+  renovate_image: value('toolchains.renovate_image')
 }
 
 if (process.argv[2] === 'github-output') {

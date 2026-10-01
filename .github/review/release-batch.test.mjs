@@ -11,7 +11,7 @@ const check = (name, conclusion, startedAt, detailsUrl = '') => ({
 })
 const successful = [
   check('Automated review / policy', 'SUCCESS', '2026-07-11T00:01:00Z'),
-  check('Full acceptance / locked OpenCloud stable', 'SUCCESS', '2026-07-11T00:01:00Z'),
+  check('Full acceptance / latest OpenCloud stable', 'SUCCESS', '2026-07-11T00:01:00Z'),
   check('CodeQL / go', 'SUCCESS', '2026-07-11T00:01:00Z'),
   check('CodeQL / javascript-typescript', 'SUCCESS', '2026-07-11T00:01:00Z'),
 ]
@@ -50,7 +50,7 @@ test('terminally failed and abandoned PRs cannot suppress an accepted release', 
       labels: [{ name: 'dependencies' }],
       statusCheckRollup: [
         ...successful,
-        check('Full acceptance / locked OpenCloud stable', 'FAILURE', '2026-07-11T00:02:00Z'),
+        check('Full acceptance / latest OpenCloud stable', 'FAILURE', '2026-07-11T00:02:00Z'),
       ],
     },
     {
@@ -64,7 +64,7 @@ test('terminally failed and abandoned PRs cannot suppress an accepted release', 
   assert.equal(result.ready, true)
   assert.deepEqual(result.quarantined, [{
     number: 22,
-    failed: ['Full acceptance / locked OpenCloud stable'],
+    failed: ['Full acceptance / latest OpenCloud stable'],
   }])
   assert.deepEqual(result.abandoned, [23])
 })

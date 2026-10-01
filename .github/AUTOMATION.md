@@ -22,7 +22,7 @@ with a narrowly scoped GitHub App installation token when practical, while retai
 alerts read, contents/pull-request/issue write, and merge permission.
 
 `weekly-maintenance.yml` runs on Sunday and Monday at 03:17 UTC. Renovate's package
-schedules select new update branches: OpenCloud, runtime/build toolchains, GitHub Actions,
+schedules select new update branches: runtime/build toolchains, GitHub Actions,
 and the paired Playwright package/image run on Sunday; ordinary application dependencies
 run on Monday, 24 hours later. Full-day UTC windows tolerate delayed Actions starts.
 Existing branches can still rebase outside their creation window, so Monday updates can
@@ -36,7 +36,7 @@ roadmap candidates leave room for upstream batches. Required checks still apply;
 Protect `main`, require pull requests, and require these exact checks:
 
 - `Automated review / policy`
-- `Full acceptance / locked OpenCloud stable`
+- `Full acceptance / latest OpenCloud stable`
 - `CodeQL / go`
 - `CodeQL / javascript-typescript`
 
@@ -107,12 +107,14 @@ only to the verified default-branch script. Do not replace this split design wit
 
 `scripts/acceptance.sh` is the only functional release gate.
 
-- On a PR it is called without artifact arguments and must build and exercise the complete locked
-  OpenCloud stable happy path.
+- On a PR and every scheduled maintenance run, it builds and exercises the complete happy path
+  against the latest official backend and the independently latest official OpenCloud Web release.
 - During release it is called with `--frontend-zip <absolute-path>` and
   `--backend-image <ghcr-reference@sha256:digest>` and must deploy those exact inputs.
-- It receives the digest-pinned `OPENCLOUD_IMAGE` and an `ACCEPTANCE_OUTPUT_DIR` for traces, logs,
-  screenshots, and a machine-readable result.
+- It resolves upstream releases at runtime and records their image digest and Web asset SHA256 in
+  `opencloud-target.json`. `ACCEPTANCE_OUTPUT_DIR` preserves traces, logs, and screenshots.
+- Release planning captures one upstream snapshot. Acceptance and publication preflight both
+  re-resolve the latest releases; an upstream change requires another full acceptance run.
 
 Unit checks, Trivy, ZIP validation, and manifest validation are prerequisites; none is advertised as
 a substitute acceptance process.
@@ -121,8 +123,10 @@ a substitute acceptance process.
 
 The two weekly runs in `weekly-maintenance.yml` run Renovate, audit open PRs and
 dependency lifecycle status, report blockers, and compare main HEAD with the latest `vX.Y.Z`
-tag. Each run updates one rolling blocker issue instead of creating weekly duplicates. When no update PR
-is pending and main changed, it invokes the full acceptance workflow itself. An accepted
+tag. Each run also performs full acceptance against the latest official frontend and backend,
+even when no dependency PR or source change exists. Each run updates one blocker issue instead
+of creating weekly duplicates. When no update PR is pending and main changed, it invokes the
+full acceptance workflow itself. An accepted
 `release:weekly` merge waits for other passing weekly candidates to auto-merge before it enters the
 formal release queue. A candidate with a terminally failed required check is quarantined and cannot
 suppress the accepted batch; the settling window is also bounded so a stuck check cannot prevent
@@ -130,28 +134,21 @@ release indefinitely. Ordinary application dependencies remain accumulated in on
 runtime and build-toolchain updates use a separate compatibility PR. Duplicate queued weekly or
 urgent releases become no-ops when the latest version tag already points at current main.
 
-OpenCloud discovery uses the highest strict `X.Y.Z` Docker Hub tag that has a published digest.
-Renovate, the compatibility marker, the exact image pin, weekly reporting, and final release
-preflight all share that deployable definition. A GitHub release without its corresponding image
-is not a compatibility target and cannot make an already accepted release stale.
+OpenCloud backend discovery uses the highest strict `X.Y.Z` tag with a published digest in
+the official stable Docker repository. Web discovery independently selects the highest published
+non-prerelease `vX.Y.Z` release in `opencloud-eu/web`, verifies the published `web.tar.gz` SHA256,
+and mounts those assets in the disposable backend. The served JavaScript entry must match those
+assets before browser tests run. No rolling image or repository-stored upstream version is used.
 
-The locked Go compiler scalar, `golang` builder image, and Dockerfile base all resolve through the
-same Docker-tag lookup rather than combining a newer scalar release with an older image. Go compiler
-releases bypass the general stability delay because `govulncheck` treats reachable standard-library
-findings as release blockers; the full compatibility and exact-artifact gates still apply before
-merge and publication. `go_module_minimum` remains owned by the tracked OpenCloud stable release and
-is not changed by compiler refreshes.
+The compatibility lock contains reproducible project build and scanning tools. Renovate keeps
+the Go compiler scalar, builder image, and Dockerfile base on the same Docker-tag lookup.
+Go compiler releases bypass the general stability delay because reachable standard-library
+findings block release. The module's language minimum belongs to `go.mod`.
 
-The embedded OpenCloud Web tag must be one stable `vX.Y.Z` release in the explicitly approved
-`opencloud.embedded_web_major`. Its package version must match that tag. The locked Node toolchain
-must be stable, in the same major as the upstream Volta baseline, and no older. The locked pnpm
-toolchain must be stable and no older than the upstream package-manager baseline; a newer pnpm
-major is permitted after a roadmap decision, as approved for pnpm 12. The base-trusted PR policy
-checks these requirements before compatibility-lock PRs can merge; the weekly and final release
-preflight repeat them. Automated PRs cannot advance the approved Web major.
-A maintainer must update that allowance, the OpenCloud target/image, and any required toolchains
-atomically in an isolated `roadmap:required` PR without an automatic release label. After it passes
-full acceptance and merges, the next weekly maintenance run may publish the accepted revision.
+OpenCloud's Go, Node, and pnpm baselines are reported as upstream metadata. They do not impose
+a Web-major allowance or require project toolchain versions to equal older embedded Web versions.
+Compatibility is decided by actual builds, security checks, and the latest-host browser acceptance.
+Breaking project dependency migrations still require a roadmap decision.
 
 A merged PR labeled `security:high` or `security:critical` invokes the same workflow immediately.
 Maintainers can also dispatch `release.yml` with `release_kind=urgent`. Urgency never skips full

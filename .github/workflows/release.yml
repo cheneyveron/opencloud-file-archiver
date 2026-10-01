@@ -58,7 +58,8 @@ jobs:
       source_sha: ${{ steps.plan.outputs.source_sha }}
       version: ${{ steps.plan.outputs.version }}
       candidate_tag: ${{ steps.plan.outputs.candidate_tag }}
-      opencloud_image: ${{ steps.lock.outputs.opencloud_image }}
+      opencloud_target: ${{ steps.upstream.outputs.opencloud_target }}
+      opencloud_release: ${{ steps.upstream.outputs.opencloud_release }}
       go_version: ${{ steps.lock.outputs.go_version }}
       node_version: ${{ steps.lock.outputs.node_version }}
       pnpm_version: ${{ steps.lock.outputs.pnpm_version }}
@@ -134,6 +135,13 @@ jobs:
         id: lock
         run: node .github/compatibility/read-lock.mjs github-output
 
+      - name: Discover the latest official OpenCloud backend and Web
+        if: steps.plan.outputs.release_needed == 'true'
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/compatibility/resolve-opencloud.mjs github-output
+
   frontend-artifact:
     name: Build frontend release ZIP once
     needs: plan
@@ -179,6 +187,7 @@ jobs:
       - name: Package the standard directory layout
         env:
           VERSION: ${{ needs.plan.outputs.version }}
+          OPENCLOUD_RELEASE: ${{ needs.plan.outputs.opencloud_release }}
         run: |
           go run ./scripts/package-web.go create \
             web-app-file-archiver/dist \
@@ -293,6 +302,7 @@ jobs:
       - name: Verify ZIP layout and checksum
         env:
           VERSION: ${{ needs.plan.outputs.version }}
+          OPENCLOUD_RELEASE: ${{ needs.plan.outputs.opencloud_release }}
         run: |
           bash .github/acceptance/verify-release-frontend.sh "$RUNNER_TEMP/release-artifacts/file-archiver-$VERSION.zip"
           node scripts/app-store-entry.mjs verify \
@@ -347,7 +357,8 @@ jobs:
 
       - name: Run the one authoritative acceptance process on exact artifacts
         env:
-          OPENCLOUD_IMAGE: ${{ needs.plan.outputs.opencloud_image }}
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTED_OPENCLOUD_TARGET: ${{ needs.plan.outputs.opencloud_target }}
           ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output
           VERSION: ${{ needs.plan.outputs.version }}
           CANDIDATE_REF: ${{ needs.backend-candidate.outputs.candidate_ref }}
@@ -425,6 +436,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PREFLIGHT: "true"
+          ACCEPTED_OPENCLOUD_TARGET: ${{ needs.plan.outputs.opencloud_target }}
         run: node .github/maintenance/weekly-report.mjs release-preflight-report.md
 
       - name: Enforce final release blockers

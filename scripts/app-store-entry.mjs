@@ -39,15 +39,8 @@ export function buildAppStoreEntry({ version, openCloudRelease }) {
   }
 }
 
-function lockedOpenCloudRelease() {
-  const lock = readFileSync('compatibility.lock.yaml', 'utf8')
-  const release = lock.match(/^\s*stable_release:\s*"([^"]+)"\s*$/m)?.[1]
-  assert.ok(release, 'compatibility.lock.yaml has no stable OpenCloud release')
-  return release
-}
-
 function verifyEntry(entry, version) {
-  const expected = buildAppStoreEntry({ version, openCloudRelease: lockedOpenCloudRelease() })
+  const expected = buildAppStoreEntry({ version, openCloudRelease: process.env.OPENCLOUD_RELEASE })
   assert.deepEqual(entry, expected, 'App Store entry differs from the accepted release metadata')
   assert.match(entry.description, /backend service/i)
   assert.match(entry.resources[0].url, /^https:\/\//)
@@ -59,7 +52,7 @@ async function main() {
   assert.ok(operation === 'create' || operation === 'verify', 'usage: app-store-entry.mjs <create|verify> X.Y.Z FILE')
   assert.ok(file, 'App Store entry path is required')
   if (operation === 'create') {
-    const entry = buildAppStoreEntry({ version, openCloudRelease: lockedOpenCloudRelease() })
+    const entry = buildAppStoreEntry({ version, openCloudRelease: process.env.OPENCLOUD_RELEASE })
     writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`)
     return
   }

@@ -207,18 +207,6 @@
       "minimumReleaseAge": "0 days"
     },
     {
-      "description": "Keep the OpenCloud release marker and exact container digest in one PR",
-      "matchPackageNames": [
-        "opencloudeu/opencloud"
-      ],
-      "groupName": "OpenCloud stable compatibility target",
-      "groupSlug": "opencloud-stable-compatibility",
-      "schedule": [
-        "* * * * 0"
-      ],
-      "prPriority": 10
-    },
-    {
       "description": "Keep Playwright tests and their exact browser image together",
       "matchPackageNames": [
         "@playwright/test",
@@ -232,7 +220,7 @@
       "prPriority": 10
     },
     {
-      "description": "OpenCloud owns the go.mod compatibility minimum; never bump it independently",
+      "description": "The module language minimum changes with source requirements, independently of compiler refreshes",
       "matchManagers": [
         "gomod"
       ],
@@ -332,26 +320,6 @@
     }
   ],
   "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^compatibility\\.lock\\.yaml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>opencloudeu/opencloud) versioning=(?<versioning>docker)\\n\\s+stable_release: \\\"v(?<openCloudVersion>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""
-      ],
-      "currentValueTemplate": "{{{openCloudVersion}}}",
-      "autoReplaceStringTemplate": "# renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker\n  stable_release: \"v{{{newVersion}}}\""
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^compatibility\\.lock\\.yaml$/"
-      ],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\n\\s+image: \\\"opencloudeu/opencloud:(?<currentValue>[^@\\\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\\\""
-      ]
-    },
     {
       "customType": "regex",
       "managerFilePatterns": [
