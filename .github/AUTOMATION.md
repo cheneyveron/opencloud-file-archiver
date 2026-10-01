@@ -107,12 +107,13 @@ only to the verified default-branch script. Do not replace this split design wit
 
 `scripts/acceptance.sh` is the only functional release gate.
 
-- On a PR and every scheduled maintenance run, it builds and exercises the complete happy path
-  against the latest official backend and the independently latest official OpenCloud Web release.
+- On a PR and when scheduled discovery finds an unaccepted combination, it exercises the complete
+  happy path against the latest official backend and independently latest official Web release.
 - During release it is called with `--frontend-zip <absolute-path>` and
   `--backend-image <ghcr-reference@sha256:digest>` and must deploy those exact inputs.
 - It resolves upstream releases at runtime and records their image digest and Web asset SHA256 in
-  `opencloud-target.json`. `ACCEPTANCE_OUTPUT_DIR` preserves traces, logs, and screenshots.
+  `opencloud-target.json`. `resolved-components.json` also records the exact source SHA, covering
+  the source, dependency locks, and build tools. `ACCEPTANCE_OUTPUT_DIR` preserves diagnostics.
 - Release planning captures one upstream snapshot. Acceptance and publication preflight both
   re-resolve the latest releases; an upstream change requires another full acceptance run.
 
@@ -123,11 +124,19 @@ a substitute acceptance process.
 
 The two weekly runs in `weekly-maintenance.yml` run Renovate, audit open PRs and
 dependency lifecycle status, report blockers, and compare main HEAD with the latest `vX.Y.Z`
-tag. Each run also performs full acceptance against the latest official frontend and backend,
-even when no dependency PR or source change exists. Each run updates one blocker issue instead
-of creating weekly duplicates. When no update PR is pending and main changed, it invokes the
-full acceptance workflow itself. An accepted
-`release:weekly` merge waits for other passing weekly candidates to auto-merge before it enters the
+tag. Discovery, fresh Go/npm vulnerability checks, and advisory/dependency reporting always run.
+Security findings or unavailable scans remain release blockers even when full acceptance is skipped.
+If the same source SHA and latest upstream versions/digests already have successful acceptance
+evidence from a trusted scheduled or
+dispatched `main` run, full acceptance is skipped. PR artifacts are never reusable evidence.
+Missing, expired, corrupt, or unavailable records require a new full run; an old snapshot cannot
+pin the target because discovery always resolves current upstream releases first. Records retain
+the existing 90-day diagnostic lifetime, with no separate mutable cache or ledger.
+
+Each run updates one blocker issue instead of creating weekly duplicates. When main needs a release
+and blockers are clear, the release workflow performs mandatory exact-artifact acceptance directly,
+without a duplicate scheduled source-acceptance run. Releases never skip acceptance using previous
+evidence. An accepted `release:weekly` merge waits for other passing weekly candidates to auto-merge before it enters the
 formal release queue. A candidate with a terminally failed required check is quarantined and cannot
 suppress the accepted batch; the settling window is also bounded so a stuck check cannot prevent
 release indefinitely. Ordinary application dependencies remain accumulated in one weekly PR;

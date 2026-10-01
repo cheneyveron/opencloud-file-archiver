@@ -29,7 +29,9 @@ Keep PR validation read-only, run the single weekly maintenance schedule, and pu
 versioned frontend ZIP/checksum and multi-architecture backend images only after acceptance.
 
 Acceptance: no `pull_request_target`, no PR secrets, least-privilege workflow permissions, and no
-rebuild between acceptance and publication.
+rebuild between acceptance and publication. Scheduled discovery always runs; full acceptance is
+needed only for an unaccepted source/upstream combination or for release. Exact release artifacts
+are always reaccepted, independently of previous scheduled results.
 
 ### RM-004 — OpenCloud Web and extension protocol compatibility
 

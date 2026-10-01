@@ -21,10 +21,17 @@ jobs:
   maintain:
     name: Discover, update, and report
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
     outputs:
       release_needed: ${{ steps.release-plan.outputs.release_needed }}
       source_sha: ${{ steps.release-plan.outputs.source_sha }}
       blockers_clear: ${{ steps.report.outputs.blockers_clear }}
+      acceptance_needed: ${{ steps.acceptance-plan.outputs.acceptance_needed }}
+      opencloud_target: ${{ steps.upstream.outputs.opencloud_target }}
     steps:
       - name: Check out the trusted default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,21 +109,47 @@ jobs:
           corepack enable
           corepack prepare "pnpm@$PNPM_VERSION" --activate
 
+      - name: Refresh Go and npm vulnerability intelligence
+        id: security
+        env:
+          GOVULNCHECK_VERSION: ${{ steps.lock.outputs.govulncheck_version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/security-discovery"
+          security_clear=true
+          (
+            cd file-archiver-service
+            go run "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION" ./...
+          ) > "$RUNNER_TEMP/security-discovery/go.log" 2>&1 || security_clear=false
+          (
+            cd web-app-file-archiver
+            pnpm audit --audit-level high
+          ) > "$RUNNER_TEMP/security-discovery/npm.log" 2>&1 || security_clear=false
+          echo "security_clear=$security_clear" >> "$GITHUB_OUTPUT"
+
       - name: Generate maintenance report
         id: report
         env:
           GH_TOKEN: ${{ github.token }}
           RENOVATE_CONFIGURED: ${{ steps.renovate-preflight.outputs.available }}
+          SECURITY_AUDIT_CLEAR: ${{ steps.security.outputs.security_clear }}
         run: node .github/maintenance/weekly-report.mjs weekly-maintenance-report.md
 
       - name: Add report to workflow summary
-        run: cat weekly-maintenance-report.md >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          cat weekly-maintenance-report.md >> "$GITHUB_STEP_SUMMARY"
+          for scan in go npm; do
+            printf '\n### %s vulnerability discovery\n\n```text\n' "$scan" >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/security-discovery/$scan.log" >> "$GITHUB_STEP_SUMMARY"
+            printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Upload immutable report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: weekly-maintenance-report-${{ github.run_id }}
-          path: weekly-maintenance-report.md
+          path: |
+            weekly-maintenance-report.md
+            ${{ runner.temp }}/security-discovery
           if-no-files-found: error
           retention-days: 90
 
@@ -164,9 +197,25 @@ jobs:
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "release_needed=$release_needed" >> "$GITHUB_OUTPUT"
 
+      - name: Discover the current official frontend and backend
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/compatibility/resolve-opencloud.mjs github-output
+
+      - name: Decide whether full acceptance is needed
+        id: acceptance-plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENCLOUD_TARGET: ${{ steps.upstream.outputs.opencloud_target }}
+          RELEASE_NEEDED: ${{ steps.release-plan.outputs.release_needed }}
+          BLOCKERS_CLEAR: ${{ steps.report.outputs.blockers_clear }}
+        run: node .github/maintenance/weekly-acceptance.mjs
+
   acceptance-latest:
     name: Weekly full acceptance / latest OpenCloud stable
     needs: maintain
+    if: needs.maintain.outputs.acceptance_needed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -174,11 +223,13 @@ jobs:
       - name: Check out the maintained source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.maintain.outputs.source_sha }}
           persist-credentials: false
 
       - name: Test the latest official OpenCloud backend and Web
         env:
           GH_TOKEN: ${{ github.token }}
+          ACCEPTED_OPENCLOUD_TARGET: ${{ needs.maintain.outputs.opencloud_target }}
           ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output
         run: bash scripts/acceptance.sh
 
@@ -186,14 +237,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: weekly-acceptance-${{ github.run_id }}
+          name: weekly-acceptance-${{ needs.maintain.outputs.source_sha }}
           path: ${{ runner.temp }}/acceptance-output
           if-no-files-found: ignore
           retention-days: 90
 
   release-if-needed:
     name: Weekly full acceptance and patch release
-    needs: [maintain, acceptance-latest]
+    needs: maintain
     if: >-
       needs.maintain.outputs.release_needed == 'true' &&
       needs.maintain.outputs.blockers_clear == 'true'
