@@ -1,19 +1,7 @@
 schema_version: 1
-observed_at_utc: "2026-09-14T00:00:00Z"
 
-# This file records the compatibility target, not an unverified claim. A target
-# becomes releasable only after the release workflow records a passing acceptance
-# run for the exact frontend ZIP and candidate backend image.
-opencloud:
-  repository: "opencloud-eu/opencloud"
-  channel: "stable"
-  # Deliberate compatibility allowance. Renovate must never advance this major;
-  # a new embedded Web major requires roadmap review and explicit approval.
-  embedded_web_major: "7"
-  # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
-  stable_release: "v7.2.4"
-  # renovate: datasource=docker depName=opencloudeu/opencloud versioning=docker
-  image: "opencloudeu/opencloud:7.2.4@sha256:6d992ccc5f1cbc7b2a9b272ba25f879b1b159c2d7ed7f5527e09059f16295697"
+# Reproducible project build and security tools. OpenCloud frontend/backend
+# targets are discovered afresh and recorded in each acceptance run's evidence.
 
 toolchains:
   # Security-patched compiler/runtime used for every build and acceptance run.
@@ -21,8 +9,7 @@ toolchains:
   go: "1.27.1"
   # renovate: datasource=docker depName=golang versioning=docker
   go_image: "golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414"
-  # Same stable major as OpenCloud Web's Volta version and no older than it.
-  # Exact frontend compatibility is still proven by the release E2E gate.
+  # Reproducible extension build runtime; latest-host E2E proves compatibility.
   # renovate: datasource=docker depName=node versioning=docker
   node: "24.21.0"
   # renovate: datasource=docker depName=node versioning=docker
@@ -51,7 +38,6 @@ toolchains:
   # Renovate receives a write-capable bot token, so its runtime is digest-pinned.
   # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate versioning=docker
   renovate_image: "ghcr.io/renovatebot/renovate:43.257.7@sha256:14cbf4bfbc686d62da375b11bbe68833ce5567caa41cd17c477d01f02c2befd0"
-  go_module_minimum: "1.25.0"
 
 release_policy:
   ordinary_updates: "weekly-grouped-patch-release"
