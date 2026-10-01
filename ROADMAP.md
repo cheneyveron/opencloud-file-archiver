@@ -76,3 +76,19 @@ stable Docker repository, currently OpenCloud 7.2.4. OpenCloud 8.0.1 is distribu
 as opencloudeu/opencloud-rolling; test it as an additional compatibility target without changing
 the stable deployment channel. Acceptance requires frozen installs, types, unit tests, the exact
 release ZIP, and browser archive operations against the unpatched host.
+
+## NanoID legacy override maintenance decision
+
+The October 2026 review retains the `nanoid@<3.3.18` security override on the maintained 3.x
+line, with a minimum target of 3.3.19. [PostCSS 8.5.28](https://github.com/postcss/postcss/blob/8.5.28/package.json)
+requests NanoID `^3.3.18` and already resolves to 3.3.19. Changing the older-version override to
+6.x would not improve that resolution and would introduce an unnecessary major-version override
+for future legacy consumers. [NanoID 3.3.19](https://github.com/ai/nanoid/releases/tag/3.3.19)
+remains an upstream-maintained patch release.
+
+Limit only this override's Renovate target to `>=3.3.19 <4.0.0`. Do not constrain direct NanoID
+requirements or other consumers: packages already requesting NanoID 6 continue on their own
+compatible release line. Keep patch updates enabled with the existing weekly and advisory-severity
+routing, required checks, and full acceptance. This decision does not suppress vulnerability
+scanning or authorize releasing a vulnerable version. If 3.x loses maintenance or a required fix
+is unavailable on that line, block release and require a new migration decision.
