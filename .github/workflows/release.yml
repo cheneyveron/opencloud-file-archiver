@@ -373,9 +373,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-acceptance-${{ needs.plan.outputs.source_sha }}
-          path: |
-            ${{ runner.temp }}/acceptance-output
-            /tmp/opencloud-file-archiver-acceptance-results-*
+          path: ${{ runner.temp }}/acceptance-output
           if-no-files-found: ignore
           retention-days: 90
 

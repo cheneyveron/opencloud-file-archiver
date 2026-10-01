@@ -114,6 +114,7 @@ require_command awk
 require_command curl
 require_command cmp
 require_command flock
+require_command git
 require_command jq
 require_command node
 require_command realpath
@@ -487,6 +488,7 @@ FRONTEND_SHA256=$(sha256sum "$FRONTEND_ZIP" | awk '{ print $1 }')
 BACKEND_IMAGE_ID=$("${DOCKER[@]}" image inspect --format '{{.Id}}' "$BACKEND_IMAGE")
 jq -n \
   --arg status passed \
+  --arg source_sha "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
   --slurpfile upstream "$RESULT_DIR/opencloud-target.json" \
   --arg frontend_zip "$FRONTEND_ZIP" \
   --arg frontend_sha256 "$FRONTEND_SHA256" \
@@ -499,6 +501,7 @@ jq -n \
   --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{
     status: $status,
+    source_sha: $source_sha,
     completed_at_utc: $completed_at,
     upstream: $upstream[0],
     frontend: {zip: $frontend_zip, sha256: $frontend_sha256},

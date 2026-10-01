@@ -172,6 +172,9 @@ const configurationBlockers = []
 if (!releasePreflight && process.env.RENOVATE_CONFIGURED !== 'true') {
   configurationBlockers.push('RENOVATE_TOKEN is not configured; automatic dependency PR creation is disabled')
 }
+if (!releasePreflight && process.env.SECURITY_AUDIT_CLEAR !== 'true') {
+  configurationBlockers.push('Fresh Go/npm vulnerability checks failed or are unavailable; see this run\'s security-discovery logs')
+}
 let upstream
 try {
   upstream = await resolveOpenCloud()
