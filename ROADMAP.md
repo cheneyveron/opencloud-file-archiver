@@ -76,3 +76,36 @@ stable Docker repository, currently OpenCloud 7.2.4. OpenCloud 8.0.1 is distribu
 as opencloudeu/opencloud-rolling; test it as an additional compatibility target without changing
 the stable deployment channel. Acceptance requires frozen installs, types, unit tests, the exact
 release ZIP, and browser archive operations against the unpatched host.
+
+## Vitest 5 compatibility decision
+
+Approve the isolated migration of the extension's development-only unit-test runner to Vitest 5.
+The OpenCloud extension SDK and test helpers remain on their jointly approved v8 release; SDK 8
+supports Vitest 4 and 5, and the locked Node 24 and Vite 8 toolchains meet Vitest 5 requirements.
+This decision does not change the plugin's runtime features or the stable OpenCloud target.
+
+Preserve every existing unit assertion and the SDK's happy-dom environment and mock isolation.
+Vitest 5 changes worker defaults, mock-reset behavior, and several test APIs, so acceptance requires
+an unchanged test count, frontend type checking/build, dependency security checks, and the complete
+archive browser flow on both the unpatched stable host and the pinned rolling compatibility host.
+Keep the update separate from other dependency changes and merge it manually only after the exact
+final revision passes all required checks. Release-artifact acceptance remains mandatory.
+
+References: [Vitest 5 migration guide](https://vitest.dev/guide/migration.html) and
+[OpenCloud SDK 8 peer dependencies](https://github.com/opencloud-eu/web/blob/v8.0.0/packages/extension-sdk/package.json).
+
+## NanoID legacy override maintenance decision
+
+The October 2026 review retains the `nanoid@<3.3.18` security override on the maintained 3.x
+line, with a minimum target of 3.3.19. [PostCSS 8.5.28](https://github.com/postcss/postcss/blob/8.5.28/package.json)
+requests NanoID `^3.3.18` and already resolves to 3.3.19. Changing the older-version override to
+6.x would not improve that resolution and would introduce an unnecessary major-version override
+for future legacy consumers. [NanoID 3.3.19](https://github.com/ai/nanoid/releases/tag/3.3.19)
+remains an upstream-maintained patch release.
+
+Limit only this override's Renovate target to `>=3.3.19 <4.0.0`. Do not constrain direct NanoID
+requirements or other consumers: packages already requesting NanoID 6 continue on their own
+compatible release line. Keep patch updates enabled with the existing weekly and advisory-severity
+routing, required checks, and full acceptance. This decision does not suppress vulnerability
+scanning or authorize releasing a vulnerable version. If 3.x loses maintenance or a required fix
+is unavailable on that line, block release and require a new migration decision.

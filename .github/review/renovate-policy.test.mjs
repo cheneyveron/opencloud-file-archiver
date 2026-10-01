@@ -12,6 +12,21 @@ function rule(description) {
   return match
 }
 
+test('the maintained NanoID cap applies only to the legacy pnpm security override', () => {
+  const legacyNanoid = rule(
+    'Keep the legacy NanoID security override on the maintained 3.x line',
+  )
+  assert.deepEqual(legacyNanoid.matchManagers, ['npm'])
+  assert.deepEqual(legacyNanoid.matchFileNames, ['web-app-file-archiver/pnpm-workspace.yaml'])
+  assert.deepEqual(legacyNanoid.matchDepTypes, ['pnpm-workspace.overrides'])
+  assert.deepEqual(legacyNanoid.matchDepNames, ['nanoid@<3.3.18'])
+  assert.equal(legacyNanoid.allowedVersions, '>=3.3.19 <4.0.0')
+  assert.deepEqual(Object.keys(legacyNanoid).sort(), [
+    'allowedVersions', 'description', 'matchDepNames', 'matchDepTypes',
+    'matchFileNames', 'matchManagers',
+  ])
+})
+
 test('ordinary updates explicitly match missing vulnerability metadata and reject breaking changes', () => {
   const ordinary = rule('Accumulate all ordinary non-breaking updates in one weekly release PR')
 

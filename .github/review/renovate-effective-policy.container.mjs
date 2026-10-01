@@ -17,6 +17,16 @@ const { extractPackageFile: extractDockerfile } = await import(
   renovateModule('dist/modules/manager/dockerfile/index.js')
 )
 const { compile } = await import(renovateModule('dist/util/template/index.js'))
+const { api: npmVersioning } = await import(
+  renovateModule('dist/modules/versioning/npm/index.js')
+)
+const { GlobalConfig } = await import(renovateModule('dist/config/global.js'))
+const { PnpmWorkspaceFile } = await import(
+  renovateModule('dist/modules/manager/npm/schema.js')
+)
+const { extractPnpmWorkspaceFile } = await import(
+  renovateModule('dist/modules/manager/npm/extract/pnpm.js')
+)
 await init()
 
 const config = JSON.parse(await readFile('renovate.json', 'utf8'))
@@ -61,6 +71,132 @@ const combinedLabels = (result) => new Set([
   ...(result.labels || []),
   ...(result.addLabels || [])
 ])
+
+const legacyNanoid = {
+  manager: 'npm',
+  datasource: 'npm',
+  depName: 'nanoid@<3.3.18',
+  packageName: 'nanoid',
+  packageFile: 'web-app-file-archiver/pnpm-workspace.yaml',
+  depType: 'pnpm-workspace.overrides',
+  versioning: 'npm',
+  currentValue: '3.3.19',
+  currentVersion: '3.3.19',
+  newVersion: '3.3.20',
+  updateType: 'patch',
+  isBreaking: false,
+  isVulnerabilityAlert: false,
+}
+
+test('the real pnpm workspace override is extracted with the capped NanoID identity', async (t) => {
+  const packageFile = 'web-app-file-archiver/pnpm-workspace.yaml'
+  const workspace = PnpmWorkspaceFile.parse(await readFile(packageFile, 'utf8'))
+  const originalGet = GlobalConfig.get
+  const originalConfig = GlobalConfig.get()
+  // Extraction reads the sibling lockfile. Scope its local directory to this
+  // test without replacing or leaking Renovate's global configuration.
+  const localDir = t.mock.method(GlobalConfig, 'get', (key) => (
+    key === 'localDir' ? process.cwd() : originalGet(key)
+  ))
+  let extraction
+  try {
+    extraction = await extractPnpmWorkspaceFile(workspace, packageFile)
+  } finally {
+    localDir.mock.restore()
+  }
+  assert.equal(GlobalConfig.get, originalGet)
+  assert.equal(GlobalConfig.get(), originalConfig)
+  const matches = extraction.deps.filter(({ packageName }) => packageName === 'nanoid')
+  assert.equal(matches.length, 1)
+  const [dependency] = matches
+  assert.equal(dependency.depName, 'nanoid@<3.3.18')
+  assert.equal(dependency.packageName, 'nanoid')
+  assert.equal(dependency.depType, 'pnpm-workspace.overrides')
+  assert.equal(dependency.datasource, 'npm')
+  assert.equal(dependency.currentValue, workspace.overrides['nanoid@<3.3.18'])
+  const result = await applyPackageRules({
+    ...config, ...dependency,
+    manager: 'npm',
+    packageFile,
+    versioning: 'npm',
+    currentVersion: dependency.currentValue,
+    updateType: 'patch',
+    isBreaking: false,
+    isVulnerabilityAlert: false,
+  })
+  assert.equal(result.allowedVersions, '>=3.3.19 <4.0.0')
+  assert.equal(npmVersioning.matches(dependency.currentValue, result.allowedVersions), true)
+  assert.equal(result.automerge, true)
+  assert.equal(result.groupSlug, 'weekly-non-breaking-maintenance')
+})
+
+test('the legacy NanoID override accepts maintained patches without major replacements', async () => {
+  const result = await applyPackageRules({ ...config, ...legacyNanoid })
+  assert.equal(result.allowedVersions, '>=3.3.19 <4.0.0')
+  for (const version of ['3.3.19', '3.3.20', '3.4.0']) {
+    assert.equal(npmVersioning.matches(version, result.allowedVersions), true, version)
+  }
+  for (const version of ['3.3.18', '4.0.0', '5.1.16', '6.0.1', '3.4.0-beta.1']) {
+    assert.equal(npmVersioning.matches(version, result.allowedVersions), false, version)
+  }
+  assert.equal(result.automerge, true)
+  assert.equal(result.groupSlug, 'weekly-non-breaking-maintenance')
+  assert.deepEqual(result.schedule, ['* * * * 1'])
+  assert.ok(combinedLabels(result).has('release:weekly'))
+})
+
+test('the legacy NanoID cap does not constrain other requirements, files, or managers', async () => {
+  for (const change of [
+    { depName: 'nanoid' },
+    { depName: 'nanoid@<6.0.0' },
+    { depType: 'dependencies' },
+    { packageFile: 'another-app/pnpm-workspace.yaml' },
+    { packageFile: 'web-app-file-archiver/package.json' },
+    { manager: 'custom.regex' },
+    {
+      depName: 'nanoid', depType: 'dependencies',
+      packageFile: 'web-app-file-archiver/package.json',
+      currentVersion: '6.0.1', newVersion: '6.0.2',
+    },
+  ]) {
+    const result = await applyPackageRules({ ...config, ...legacyNanoid, ...change })
+    assert.ok(result.allowedVersions == null, JSON.stringify(change))
+    assert.equal(result.automerge, true, JSON.stringify(change))
+  }
+})
+
+for (const severity of ['HIGH', 'CRITICAL', 'MEDIUM']) {
+  test(`the legacy NanoID cap preserves ${severity} patch security routing`, async () => {
+    const alertRule = {
+      matchDatasources: ['npm'],
+      matchPackageNames: ['nanoid'],
+      matchCurrentVersion: '3.3.19',
+      isVulnerabilityAlert: true,
+      vulnerabilitySeverity: severity,
+      force: { ...config.vulnerabilityAlerts },
+    }
+    const result = await applyPackageRules({
+      ...config, ...legacyNanoid,
+      packageRules: [...config.packageRules, alertRule],
+      isVulnerabilityAlert: true,
+      vulnerabilitySeverity: severity,
+    })
+    assert.equal(result.allowedVersions, '>=3.3.19 <4.0.0')
+    assert.equal(npmVersioning.matches('3.3.20', result.allowedVersions), true)
+    assert.equal(result.automerge, true)
+    assert.deepEqual(result.force.schedule, ['at any time'])
+    assert.equal(result.force.groupName, null)
+    assert.ok(!combinedLabels(result).has('roadmap:required'))
+    if (severity === 'MEDIUM') {
+      assert.ok(combinedLabels(result).has('release:weekly'))
+      assert.ok(combinedLabels(result).has('security:triage'))
+    } else {
+      assert.equal(result.minimumReleaseAge, '0 days')
+      assert.ok(combinedLabels(result).has(`security:${severity.toLowerCase()}`))
+      assert.ok(!combinedLabels(result).has('release:weekly'))
+    }
+  })
+}
 
 for (const severity of ['HIGH', 'CRITICAL']) {
   for (const updateType of ['patch', 'major']) {
