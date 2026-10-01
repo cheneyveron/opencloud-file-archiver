@@ -33,8 +33,9 @@ rebuild between acceptance and publication.
 
 ### RM-004 — OpenCloud Web and extension protocol compatibility
 
-Test only the latest OpenCloud formal stable release as the release gate. Core Web patches remain
-optional; the unpatched host is the mandatory baseline.
+Test the latest official stable backend with the independently latest formal OpenCloud Web release.
+Resolve both at each acceptance run; no stored upstream version or Web-major cap is a release gate.
+Core Web patches remain optional; the unpatched host is the mandatory baseline.
 
 Acceptance: manifest discovery, ESM Module Federation load, context actions, location picker,
 request-header forwarding, task UI fallback, and file-list refresh all pass.
@@ -67,15 +68,13 @@ TypeScript configuration, and test helpers together to v8. The packages share st
 injection state; updating Web and test helpers independently can load incompatible Pinia copies.
 
 pnpm is an extension build tool, not a shared browser runtime. Approve pnpm 12 with its exact
-version recorded in both packageManager and the compatibility lock. It must be a stable version
-no older than upstream's pnpm baseline; Node continues to require upstream's stable major.
+version recorded in both packageManager and the compatibility lock. Actual frontend builds and
+latest-host E2E establish compatibility; an older upstream toolchain baseline does not cap upgrades.
 Future breaking toolchain updates still require a roadmap decision and never automerge.
 
-The mandatory deployment target remains the latest formal release available in the upstream
-stable Docker repository, currently OpenCloud 7.2.4. OpenCloud 8.0.1 is distributed separately
-as opencloudeu/opencloud-rolling; test it as an additional compatibility target without changing
-the stable deployment channel. Acceptance requires frozen installs, types, unit tests, the exact
-release ZIP, and browser archive operations against the unpatched host.
+Acceptance requires frozen installs, types, unit tests, the exact release ZIP, and browser archive
+operations against the latest official backend and Web assets on the unpatched disposable host.
+Upstream releases are discovered each run and recorded in the acceptance evidence.
 
 ## Vitest 5 compatibility decision
 
@@ -87,7 +86,7 @@ This decision does not change the plugin's runtime features or the stable OpenCl
 Preserve every existing unit assertion and the SDK's happy-dom environment and mock isolation.
 Vitest 5 changes worker defaults, mock-reset behavior, and several test APIs, so acceptance requires
 an unchanged test count, frontend type checking/build, dependency security checks, and the complete
-archive browser flow on both the unpatched stable host and the pinned rolling compatibility host.
+archive browser flow on the latest official backend and Web releases on an unpatched host.
 Keep the update separate from other dependency changes and merge it manually only after the exact
 final revision passes all required checks. Release-artifact acceptance remains mandatory.
 

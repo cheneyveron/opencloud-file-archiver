@@ -34,90 +34,6 @@ export function pnpmUpdateSummary(outdatedInfo) {
   return { failures, updates }
 }
 
-function stableVersionTriplet(value) {
-  const match = String(value || '').match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
-  return match ? match.slice(1).map(BigInt) : null
-}
-
-export function latestDeployableStableDockerTag(records) {
-  let latest = null
-  for (const record of Array.isArray(records) ? records : []) {
-    const version = stableVersionTriplet(record?.name)
-    if (!version || !/^sha256:[a-f0-9]{64}$/.test(String(record?.digest || ''))) continue
-    const differingIndex = latest && version.findIndex((part, index) => part !== latest.version[index])
-    if (!latest || (differingIndex >= 0 && version[differingIndex] > latest.version[differingIndex])) {
-      latest = { name: record.name, version }
-    }
-  }
-  return latest ? `v${latest.name}` : ''
-}
-
-export function isSameMajorStableVersionAtLeast(baselineVersion, selectedVersion) {
-  const baseline = stableVersionTriplet(baselineVersion)
-  const selected = stableVersionTriplet(selectedVersion)
-  if (!baseline || !selected || selected[0] !== baseline[0]) return false
-
-  for (let index = 1; index < baseline.length; index += 1) {
-    if (selected[index] !== baseline[index]) return selected[index] > baseline[index]
-  }
-  return true
-}
-
-export function openCloudWebCompatibilityFindings({
-  approvedWebMajor,
-  selectedNode,
-  selectedPnpm,
-  upstreamNode,
-  upstreamPackageVersion,
-  upstreamPnpm,
-  upstreamWeb,
-}) {
-  const findings = []
-  const web = String(upstreamWeb || '').match(/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
-  if (!web) {
-    findings.push(`OpenCloud embedded Web ${upstreamWeb || 'missing'} is not a stable vX.Y.Z release`)
-  } else if (!/^(?:0|[1-9]\d*)$/.test(String(approvedWebMajor || '')) ||
-             web[1] !== String(approvedWebMajor)) {
-    findings.push(`OpenCloud embedded Web major ${web[1]} is outside approved major ${approvedWebMajor || 'missing'}; a roadmap decision is required`)
-  }
-  if (web && upstreamPackageVersion !== upstreamWeb.slice(1)) {
-    findings.push(`Embedded OpenCloud Web package version ${upstreamPackageVersion || 'missing'} does not match ${upstreamWeb}`)
-  }
-
-  if (!isSameMajorStableVersionAtLeast(upstreamNode, selectedNode)) {
-    findings.push(`Embedded OpenCloud Web uses Volta Node baseline ${upstreamNode || 'missing'}; toolchains.node must be no older in the same major, but is ${selectedNode || 'missing'}`)
-  }
-  const pnpmBaseline = stableVersionTriplet(upstreamPnpm)
-  const pnpmSelected = stableVersionTriplet(selectedPnpm)
-  const compatiblePnpm = pnpmBaseline && pnpmSelected &&
-    (pnpmSelected[0] > pnpmBaseline[0] || isSameMajorStableVersionAtLeast(upstreamPnpm, selectedPnpm))
-  if (!compatiblePnpm) {
-    findings.push(`Embedded OpenCloud Web uses pnpm baseline ${upstreamPnpm || 'missing'}; toolchains.pnpm must be a stable version no older, but is ${selectedPnpm || 'missing'}`)
-  }
-  return findings
-}
-
-export function webMajorAllowanceChangeFindings({
-  automatedAuthor,
-  currentMajor,
-  labels = [],
-  proposedMajor,
-}) {
-  if (currentMajor === proposedMajor) return []
-  const labelSet = new Set(labels)
-  const findings = []
-  if (automatedAuthor) {
-    findings.push('Automated PRs cannot change opencloud.embedded_web_major; use an independent human roadmap decision')
-  }
-  if (!labelSet.has('roadmap:required')) {
-    findings.push('Changing opencloud.embedded_web_major requires a roadmap:required decision')
-  }
-  if (['release:weekly', 'security:high', 'security:critical'].some((label) => labelSet.has(label))) {
-    findings.push('An embedded Web major allowance change cannot use an automatic release route')
-  }
-  return findings
-}
-
 export function isAutomatedDependencyPullRequest({ authorLogin, authorType, headRef }) {
   return authorType === 'Bot' ||
     /\[bot\]$/.test(String(authorLogin || '')) ||
@@ -238,7 +154,7 @@ export function safeReportText(value, maximumLength = 500) {
 
 export const REQUIRED_CHECKS = [
   'Automated review / policy',
-  'Full acceptance / locked OpenCloud stable',
+  'Full acceptance / latest OpenCloud stable',
   'CodeQL / go',
   'CodeQL / javascript-typescript',
 ]

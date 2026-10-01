@@ -67,7 +67,7 @@ jobs:
         run: echo "Merge queue revisions were already reviewed as pull requests."
 
   acceptance:
-    name: Full acceptance / locked OpenCloud stable
+    name: Full acceptance / latest OpenCloud stable
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the proposed revision
@@ -77,15 +77,11 @@ jobs:
 
       - name: Run the one authoritative acceptance process
         env:
+          GH_TOKEN: ${{ github.token }}
           ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output
         run: |
           test -f scripts/acceptance.sh
           bash scripts/acceptance.sh
-
-      - name: Verify Web 8 compatibility on the pinned upstream rolling release
-        env:
-          ACCEPTANCE_OUTPUT_DIR: ${{ runner.temp }}/acceptance-output/web8
-        run: bash scripts/acceptance.sh --opencloud-image opencloudeu/opencloud-rolling:8.0.1@sha256:1e78144071ab3fc20d2533dd4c5709d24b7e1669c96439fdf7c73cb2808a5d5e
 
       - name: Preserve acceptance diagnostics
         if: always()

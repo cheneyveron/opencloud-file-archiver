@@ -79,5 +79,4 @@ Restart the OpenCloud Web service, sign in, and confirm:
 
 Keep the previous frontend directory and immutable image tag until the smoke test passes. Upgrade
 the ZIP and backend image as one unit. To roll back, restore both previous versions and restart the
-OpenCloud Web service; do not mix frontend and backend versions unless that combination is recorded
-as validated in `compatibility.lock.yaml`.
+OpenCloud Web service; keep the plugin frontend and backend on the same release version.

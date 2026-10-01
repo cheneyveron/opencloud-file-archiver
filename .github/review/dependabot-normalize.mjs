@@ -270,7 +270,7 @@ export function makeNormalizationPlan ({ dependencies, alerts, changedFiles, eco
     'Roadmap item: RM-001',
     `Security impact: ${impact}`,
     `Security advisory: ${advisory}`,
-    'Validation: Automated review / policy, both CodeQL analyses, and Full acceptance / locked OpenCloud stable must pass before merge.',
+    'Validation: Automated review / policy, both CodeQL analyses, and Full acceptance / latest OpenCloud stable must pass before merge.',
     `Unexpected changes: None expected outside the signed Dependabot update for ${dependencyNames}.`,
     `Dependency update type: ${updateTypes.join(', ')}${major ? everyMajorIsUrgent && allDependenciesMatched ? ' (major; every major dependency is covered by a High/Critical alert)' : ' (major; manual roadmap decision required)' : ''}`,
     `Normalized head SHA: ${headSha || 'missing'}`,

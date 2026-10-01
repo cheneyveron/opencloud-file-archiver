@@ -1,14 +1,13 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { assertCurrentOpenCloud, resolveOpenCloud } from '../compatibility/resolve-opencloud.mjs'
 import {
   allGoModuleNames,
   deprecatedPnpmPackages,
   directGoModuleNames,
   isAbandonedRenovatePullRequest,
   isPendingReleasePullRequest,
-  latestDeployableStableDockerTag,
   lockedDirectPnpmVersions,
-  openCloudWebCompatibilityFindings,
   pnpmUpdateSummary,
   requiredCheckSummary,
   replacementLeadLabel,
@@ -50,32 +49,7 @@ const json = (command, args, options) => {
   }
 }
 
-const openCloudDockerTags = () => {
-  const tags = []
-  let next = 'https://hub.docker.com/v2/repositories/opencloudeu/opencloud/tags?page_size=100&page=1&ordering=last_updated'
-  for (let page = 0; next && page < 100; page += 1) {
-    const response = json('curl', ['--fail', '--silent', '--show-error', next])
-    if (response?.error || !Array.isArray(response?.results)) {
-      return { error: response?.error || 'Docker Hub returned an invalid tag response' }
-    }
-    tags.push(...response.results)
-    if (!response.next) return tags
-    try {
-      const nextUrl = new URL(response.next)
-      if (nextUrl.protocol !== 'https:' || nextUrl.hostname !== 'hub.docker.com' ||
-          nextUrl.pathname !== '/v2/repositories/opencloudeu/opencloud/tags') {
-        return { error: 'Docker Hub returned an untrusted pagination URL' }
-      }
-      next = nextUrl.toString()
-    } catch {
-      return { error: 'Docker Hub returned an invalid pagination URL' }
-    }
-  }
-  return { error: 'Docker Hub tag pagination exceeded the safety limit' }
-}
-
 const compatibility = readFileSync('compatibility.lock.yaml', 'utf8')
-const lockedOpenCloud = compatibility.match(/stable_release: "([^"]+)"/)?.[1] || 'unknown'
 const approvedReplacements = new Map(
   [...compatibility.matchAll(/^  "([^"]+)":\s*"([^"]+)"\s*$/gm)].map((match) => [match[1], match[2]])
 )
@@ -194,85 +168,19 @@ const discoverGitHubCandidates = (dependency, note, approved) => {
   return { candidates, failure: '' }
 }
 
-const openCloudTags = openCloudDockerTags()
-const latestTag = latestDeployableStableDockerTag(openCloudTags) || 'lookup-failed'
-const upstreamChanged = latestTag !== 'lookup-failed' && latestTag !== lockedOpenCloud
 const configurationBlockers = []
 if (!releasePreflight && process.env.RENOVATE_CONFIGURED !== 'true') {
   configurationBlockers.push('RENOVATE_TOKEN is not configured; automatic dependency PR creation is disabled')
 }
-if (latestTag === 'lookup-failed') {
-  configurationBlockers.push('The latest deployable OpenCloud stable image tag could not be resolved from Docker Hub')
-} else if (upstreamChanged) {
-  configurationBlockers.push(`OpenCloud ${latestTag} is available; merge the grouped compatibility target and image-digest update before release`)
-}
-
-const lockedImage = compatibility.match(/^  image: "([^"]+)"$/m)?.[1] || ''
-const expectedImageVersion = lockedOpenCloud.replace(/^v/, '')
-if (!new RegExp(`:${expectedImageVersion.replaceAll('.', '\\.')}@sha256:[a-f0-9]{64}$`).test(lockedImage)) {
-  configurationBlockers.push('OpenCloud image must match stable_release and include an exact sha256 digest')
-}
-
-let upstreamGo = 'lookup-failed'
-let upstreamWeb = 'lookup-failed'
-let upstreamNode = 'lookup-failed'
-let upstreamPnpm = 'lookup-failed'
-let upstreamWebPackageVersion = 'lookup-failed'
-if (latestTag !== 'lookup-failed') {
-  const upstreamGoMod = run('gh', [
-    'api', '-H', 'Accept: application/vnd.github.raw+json',
-    `repos/opencloud-eu/opencloud/contents/go.mod?ref=${encodeURIComponent(latestTag)}`
-  ])
-  const upstreamWebMakefile = run('gh', [
-    'api', '-H', 'Accept: application/vnd.github.raw+json',
-    `repos/opencloud-eu/opencloud/contents/services/web/Makefile?ref=${encodeURIComponent(latestTag)}`
-  ])
-  if (typeof upstreamGoMod === 'string') {
-    upstreamGo = upstreamGoMod.match(/^go\s+(\S+)/m)?.[1] || 'lookup-failed'
+let upstream
+try {
+  upstream = await resolveOpenCloud()
+  if (releasePreflight) {
+    if (!process.env.ACCEPTED_OPENCLOUD_TARGET) throw new Error('The accepted OpenCloud target is missing')
+    assertCurrentOpenCloud(JSON.parse(process.env.ACCEPTED_OPENCLOUD_TARGET), upstream)
   }
-  if (typeof upstreamWebMakefile === 'string') {
-    const versions = [...upstreamWebMakefile.matchAll(/^WEB_ASSETS_VERSION\s*=\s*(\S+)\s*$/gm)]
-    upstreamWeb = versions.length === 1 ? versions[0][1] : 'lookup-failed'
-  }
-  if (upstreamWeb !== 'lookup-failed') {
-    const upstreamWebPackage = run('gh', [
-      'api', '-H', 'Accept: application/vnd.github.raw+json',
-      `repos/opencloud-eu/web/contents/package.json?ref=${encodeURIComponent(upstreamWeb)}`
-    ])
-    if (typeof upstreamWebPackage === 'string') {
-      try {
-        const packageJson = JSON.parse(upstreamWebPackage)
-        upstreamNode = packageJson?.volta?.node || 'lookup-failed'
-        upstreamPnpm = String(packageJson?.packageManager || '').match(/^pnpm@((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/)?.[1] || 'lookup-failed'
-        upstreamWebPackageVersion = packageJson?.version || 'lookup-failed'
-      } catch {
-        upstreamNode = 'lookup-failed'
-        upstreamPnpm = 'lookup-failed'
-        upstreamWebPackageVersion = 'lookup-failed'
-      }
-    }
-  }
-}
-if ([upstreamGo, upstreamWeb, upstreamNode, upstreamPnpm, upstreamWebPackageVersion].includes('lookup-failed')) {
-  configurationBlockers.push('OpenCloud Go or embedded Web version, Node, and pnpm compatibility metadata could not be resolved')
-}
-const lockedGoMinimum = compatibility.match(/^  go_module_minimum: "([^"]+)"$/m)?.[1] || ''
-const lockedNode = compatibility.match(/^  node: "([^"]+)"$/m)?.[1] || ''
-const lockedPnpm = compatibility.match(/^  pnpm: "([^"]+)"$/m)?.[1] || ''
-const approvedWebMajor = compatibility.match(/^  embedded_web_major: "([^"]+)"$/m)?.[1] || ''
-if (upstreamGo !== 'lookup-failed' && upstreamGo !== lockedGoMinimum) {
-  configurationBlockers.push(`OpenCloud requires Go ${upstreamGo}, but go_module_minimum is ${lockedGoMinimum || 'missing'}`)
-}
-if (![upstreamWeb, upstreamNode, upstreamPnpm, upstreamWebPackageVersion].includes('lookup-failed')) {
-  configurationBlockers.push(...openCloudWebCompatibilityFindings({
-    approvedWebMajor,
-    selectedNode: lockedNode,
-    selectedPnpm: lockedPnpm,
-    upstreamNode,
-    upstreamPackageVersion: upstreamWebPackageVersion,
-    upstreamPnpm,
-    upstreamWeb,
-  }))
+} catch (error) {
+  configurationBlockers.push(`Latest official OpenCloud compatibility discovery: ${error.message || error}`)
 }
 
 const pullRequests = releasePreflight ? [] : json('gh', [
@@ -457,13 +365,11 @@ const lines = [
   '',
   `Generated: ${new Date().toISOString()}`,
   `Repository: ${repository}`,
-  `Tracked OpenCloud stable: ${lockedOpenCloud}`,
-  `Latest deployable OpenCloud stable: ${latestTag}`,
-  `Latest OpenCloud required Go: ${upstreamGo}`,
-  `Latest OpenCloud embedded Web: ${upstreamWeb}`,
-  `Embedded OpenCloud Web Volta Node baseline: ${upstreamNode}`,
-  `Embedded OpenCloud Web pnpm baseline: ${upstreamPnpm}`,
-  `OpenCloud update detected: ${upstreamChanged ? 'yes' : 'no'}`,
+  `Latest official OpenCloud backend: ${upstream?.opencloud_release || 'lookup-failed'}`,
+  `Latest official OpenCloud Web: ${upstream?.web_release || 'lookup-failed'}`,
+  `OpenCloud required Go: ${upstream?.go || 'lookup-failed'}`,
+  `OpenCloud Web Node baseline: ${upstream?.node || 'lookup-failed'}`,
+  `OpenCloud Web pnpm baseline: ${upstream?.pnpm || 'lookup-failed'}`,
   `Unresolved blockers: ${unresolved.length}`,
   '',
   '## Open pull requests',
