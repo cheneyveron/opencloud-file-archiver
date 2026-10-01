@@ -21,11 +21,15 @@ function readEvidence(repository, runId, name) {
   }
 }
 
-export function trustedAcceptanceRun(run, repository) {
-  return run?.status === 'completed' && run.conclusion === 'success' &&
-    run.repository?.full_name === repository && run.head_repository?.full_name === repository &&
-    run.head_branch === 'main' && ['schedule', 'workflow_dispatch'].includes(run.event) &&
-    ['.github/workflows/weekly-maintenance.yml', '.github/workflows/release.yml'].includes(run.path)
+export function trustedAcceptanceRun(run, repository, mergedPullRequests = []) {
+  if (run?.status !== 'completed' || run.conclusion !== 'success' ||
+      run.repository?.full_name !== repository || run.head_repository?.full_name !== repository) return false
+  if (run.head_branch === 'main' && ['schedule', 'workflow_dispatch'].includes(run.event) &&
+      ['.github/workflows/weekly-maintenance.yml', '.github/workflows/release.yml'].includes(run.path)) return true
+  return run.event === 'pull_request' && run.path === '.github/workflows/release-after-merge.yml' &&
+    mergedPullRequests.some((pr) => pr.state === 'closed' && pr.merged_at &&
+      pr.base?.ref === 'main' && pr.base.repo?.full_name === repository &&
+      pr.head?.repo?.full_name === repository && pr.head.sha === run.head_sha)
 }
 
 export function sameAcceptance(record, sourceSha, upstream) {
@@ -54,7 +58,15 @@ export async function planWeeklyAcceptance({
       for (const artifact of response.artifacts) {
         if (artifact.name !== name || artifact.expired !== false || !Number.isSafeInteger(artifact.workflow_run?.id)) continue
         const run = await api(`repos/${repository}/actions/runs/${artifact.workflow_run.id}`)
-        if (run.id !== artifact.workflow_run.id || !trustedAcceptanceRun(run, repository)) continue
+        if (run.id !== artifact.workflow_run.id) continue
+        let trusted = trustedAcceptanceRun(run, repository)
+        if (!trusted && name.startsWith('release-acceptance-') &&
+            run.event === 'pull_request' && run.path === '.github/workflows/release-after-merge.yml' &&
+            /^[a-f0-9]{40}$/.test(run.head_sha || '')) {
+          const pulls = await api(`repos/${repository}/commits/${run.head_sha}/pulls?per_page=100`)
+          trusted = Array.isArray(pulls) && trustedAcceptanceRun(run, repository, pulls)
+        }
+        if (!trusted) continue
         try {
           if (sameAcceptance(await evidence(repository, run.id, name), sourceSha, upstream)) {
             return { needed: false, reason: `This source and latest upstream combination passed in trusted main run ${run.id}.` }

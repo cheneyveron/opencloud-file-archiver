@@ -128,6 +128,32 @@ test('trusted main release evidence can also cover the unchanged weekly combinat
   assert.equal((await planWeeklyAcceptance(options)).needed, false)
 })
 
+test('formal post-merge release evidence requires API proof of a same-repository PR merged into main', async () => {
+  const postMerge = { ...run, event: 'pull_request', path: '.github/workflows/release-after-merge.yml',
+    head_branch: 'renovate/weekly', head_sha: 'b'.repeat(40) }
+  const merged = { state: 'closed', merged_at: '2026-10-01T00:00:00Z',
+    base: { ref: 'main', repo: { full_name: repository } },
+    head: { sha: postMerge.head_sha, repo: { full_name: repository } } }
+  for (const pr of [merged, { ...merged, merged_at: null }, { ...merged, state: 'open' },
+    { ...merged, base: { ...merged.base, ref: 'develop' } },
+    { ...merged, head: { ...merged.head, sha: 'c'.repeat(40) } },
+    { ...merged, head: { ...merged.head, repo: { full_name: 'fork/repo' } } }]) {
+    const trusted = pr === merged
+    const options = inputs({ evidence: async () => {
+      assert.equal(trusted, true, 'Never download unmerged or fork evidence')
+      return record
+    } })
+    options.api = async (endpoint) => {
+      if (endpoint.includes('/artifacts?')) return { artifacts: endpoint.includes('name=release-acceptance-') ? [{
+        name: `release-acceptance-${sourceSha}`, expired: false, workflow_run: { id: run.id },
+      }] : [] }
+      if (endpoint.includes('/commits/')) return [pr]
+      return postMerge
+    }
+    assert.equal((await planWeeklyAcceptance(options)).needed, !trusted)
+  }
+})
+
 test('weekly conditions cannot bypass a release or skip discovery and security routing', async () => {
   const workflow = await readFile(new URL('../workflows/weekly-maintenance.yml', import.meta.url), 'utf8')
   const release = await readFile(new URL('../workflows/release.yml', import.meta.url), 'utf8')

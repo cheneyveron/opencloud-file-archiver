@@ -127,8 +127,9 @@ dependency lifecycle status, report blockers, and compare main HEAD with the lat
 tag. Discovery, fresh Go/npm vulnerability checks, and advisory/dependency reporting always run.
 Security findings or unavailable scans remain release blockers even when full acceptance is skipped.
 If the same source SHA and latest upstream versions/digests already have successful acceptance
-evidence from a trusted scheduled or
-dispatched `main` run, full acceptance is skipped. PR artifacts are never reusable evidence.
+evidence from a trusted scheduled/dispatched `main` run or a formal post-merge release, full acceptance
+is skipped. Post-merge evidence requires GitHub confirmation that its same-repository PR merged
+into `main`; ordinary PR validation artifacts are never reusable evidence.
 Missing, expired, corrupt, or unavailable records require a new full run; an old snapshot cannot
 pin the target because discovery always resolves current upstream releases first. Records retain
 the existing 90-day diagnostic lifetime, with no separate mutable cache or ledger.
@@ -136,7 +137,8 @@ the existing 90-day diagnostic lifetime, with no separate mutable cache or ledge
 Each run updates one blocker issue instead of creating weekly duplicates. When main needs a release
 and blockers are clear, the release workflow performs mandatory exact-artifact acceptance directly,
 without a duplicate scheduled source-acceptance run. Releases never skip acceptance using previous
-evidence. An accepted `release:weekly` merge waits for other passing weekly candidates to auto-merge before it enters the
+evidence. An accepted `release:weekly` merge waits for other passing weekly candidates to auto-merge
+before it enters the
 formal release queue. A candidate with a terminally failed required check is quarantined and cannot
 suppress the accepted batch; the settling window is also bounded so a stuck check cannot prevent
 release indefinitely. Ordinary application dependencies remain accumulated in one weekly PR;
