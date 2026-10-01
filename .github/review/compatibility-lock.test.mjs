@@ -11,7 +11,6 @@ const validator = join(repository, '.github/compatibility/read-lock.mjs')
 const fixtureFiles = [
   'compatibility.lock.yaml',
   'file-archiver-service/Dockerfile',
-  'file-archiver-service/go.mod',
   'web-app-file-archiver/package.json',
   'web-app-file-archiver/pnpm-lock.yaml',
 ]
@@ -30,9 +29,9 @@ async function fixture(t, transform = (source) => source) {
 }
 
 test('build lock does not require a stored OpenCloud release or Web major allowance', async (t) => {
-  const result = await fixture(t, (source) => source
-    .replace(/^opencloud:\n(?:[^\n]*\n)*?(?=toolchains:)/m, '')
-    .replace(/^  go_module_minimum:.*\n/m, ''))
+  const source = await readFile(join(repository, 'compatibility.lock.yaml'), 'utf8')
+  assert.doesNotMatch(source, /^opencloud:|^  go_module_minimum:/m)
+  const result = await fixture(t)
   assert.equal(result.status, 0, result.stderr)
   const resolved = JSON.parse(result.stdout)
   assert.ok(resolved.go_image.startsWith(`golang:${resolved.go_version}-`))
