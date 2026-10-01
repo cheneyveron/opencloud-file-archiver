@@ -143,10 +143,12 @@ merge and publication. `go_module_minimum` remains owned by the tracked OpenClou
 is not changed by compiler refreshes.
 
 The embedded OpenCloud Web tag must be one stable `vX.Y.Z` release in the explicitly approved
-`opencloud.embedded_web_major`. Its package version must match that tag, and the locked Node and
-pnpm toolchains must be stable, in the same major as the upstream Volta/package-manager baselines,
-and no older. The base-trusted PR policy checks this before compatibility-lock PRs can merge; the
-weekly and final release preflight repeat it. Automated PRs cannot advance the approved Web major.
+`opencloud.embedded_web_major`. Its package version must match that tag. The locked Node toolchain
+must be stable, in the same major as the upstream Volta baseline, and no older. The locked pnpm
+toolchain must be stable and no older than the upstream package-manager baseline; a newer pnpm
+major is permitted after a roadmap decision, as approved for pnpm 12. The base-trusted PR policy
+checks these requirements before compatibility-lock PRs can merge; the weekly and final release
+preflight repeat them. Automated PRs cannot advance the approved Web major.
 A maintainer must update that allowance, the OpenCloud target/image, and any required toolchains
 atomically in an isolated `roadmap:required` PR without an automatic release label. After it passes
 full acceptance and merges, the next weekly maintenance run may publish the accepted revision.

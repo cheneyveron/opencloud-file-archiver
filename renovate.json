@@ -313,6 +313,22 @@
       ],
       "groupName": "OpenCloud Web SDK compatibility",
       "groupSlug": "opencloud-web-sdk-compatibility"
+    },
+    {
+      "description": "Keep the legacy NanoID security override on the maintained 3.x line",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "web-app-file-archiver/pnpm-workspace.yaml"
+      ],
+      "matchDepTypes": [
+        "pnpm-workspace.overrides"
+      ],
+      "matchDepNames": [
+        "nanoid@<3.3.18"
+      ],
+      "allowedVersions": ">=3.3.19 <4.0.0"
     }
   ],
   "customManagers": [
