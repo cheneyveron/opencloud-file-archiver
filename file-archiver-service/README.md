@@ -65,6 +65,9 @@ DELETE /archive/api/extractions/{jobId}
 
 ## Local Test
 
+Source builds require Go 1.26 or newer. CI and published images use the security-patched
+compiler pinned in `compatibility.lock.yaml`.
+
 ```sh
 go test ./...
 PORT=8080 FILE_ARCHIVER_OPENCLOUD_URL=https://host.docker.internal:9200 go run ./cmd/file-archiver-service

@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -953,6 +954,64 @@ func TestZipPreviewEncryptedArchiveRequiresPassword(t *testing.T) {
 	}
 }
 
+func TestZipAES256PreviewWithPassword(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+		wantCode int
+	}{
+		{name: "correct", password: "golang", wantCode: http.StatusCreated},
+		{name: "wrong", password: "wrong-password", wantCode: http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeDAV()
+			fake.putFile("/secret.zip", zipAES256Fixture(t))
+			davServer := httptest.NewServer(fake)
+			defer davServer.Close()
+			api := httptest.NewServer(newTestArchiveServer(t, davServer.URL))
+			defer api.Close()
+
+			body := fmt.Sprintf(`{
+				"source":{"spaceId":"space-id","path":"/secret.zip","name":"secret.zip","mimeType":"application/zip"},
+				"password":%q
+			}`, tc.password)
+			res := doJSON(t, api.URL+"/api/previews", http.MethodPost, body)
+			defer res.Body.Close()
+			if res.StatusCode != tc.wantCode {
+				data, _ := io.ReadAll(res.Body)
+				t.Fatalf("create preview status = %d, want %d, body=%s", res.StatusCode, tc.wantCode, data)
+			}
+			if tc.wantCode == http.StatusUnauthorized {
+				var payload map[string]string
+				decodeJSON(t, res.Body, &payload)
+				if payload["code"] != "PASSWORD_OR_ARCHIVE_INVALID" {
+					t.Fatalf("code = %q, want PASSWORD_OR_ARCHIVE_INVALID", payload["code"])
+				}
+				return
+			}
+
+			var preview publicPreview
+			decodeJSON(t, res.Body, &preview)
+			if preview.ID == "" || preview.Format != "zip" {
+				t.Fatalf("unexpected preview: %#v", preview)
+			}
+			entry := findPreviewEntry(t, preview.Entries, "hello.txt")
+			if !entry.Encrypted || entry.PreviewKind != "text" || entry.Size != 13 {
+				t.Fatalf("unexpected encrypted entry: %#v", entry)
+			}
+			res = doJSON(t, api.URL+"/api/previews/"+preview.ID+"/entries/"+entry.ID+"/content", http.MethodGet, "")
+			defer res.Body.Close()
+			data, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.StatusCode != http.StatusOK || string(data) != "Hello World\r\n" {
+				t.Fatalf("preview content status = %d, body=%q", res.StatusCode, data)
+			}
+		})
+	}
+}
+
 func TestRarPreviewListsAndStreamsEntryWithFakeWebDAV(t *testing.T) {
 	fake := newFakeDAV()
 	fake.putFile("/archive.rar", rarFixture(t, "plain"))
@@ -1232,6 +1291,67 @@ func TestZipExtractionEncryptedArchiveRequiresPassword(t *testing.T) {
 	}
 	if got := fake.file("/out/seven-out/seven.txt"); got != nil {
 		t.Fatalf("encrypted file was extracted without password: %q", got)
+	}
+}
+
+func TestZipAES256ExtractionWithPassword(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		password string
+		wantCode string
+	}{
+		{name: "correct", password: "golang"},
+		{name: "wrong", password: "wrong-password", wantCode: "PASSWORD_OR_ARCHIVE_INVALID"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeDAV()
+			fake.requirePutContentLength = true
+			fake.putFile("/secret.zip", zipAES256Fixture(t))
+			var putRequests atomic.Int64
+			davServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					putRequests.Add(1)
+				}
+				fake.ServeHTTP(w, r)
+			}))
+			defer davServer.Close()
+			api := httptest.NewServer(newTestArchiveServer(t, davServer.URL))
+			defer api.Close()
+
+			body := fmt.Sprintf(`{
+				"source":{"spaceId":"space-id","path":"/secret.zip","name":"secret.zip","mimeType":"application/zip"},
+				"destination":{"spaceId":"space-id","folderPath":"/out"},
+				"password":%q,
+				"conflicts":"fail"
+			}`, tc.password)
+			res := doJSON(t, api.URL+"/api/extractions", http.MethodPost, body)
+			defer res.Body.Close()
+			if res.StatusCode != http.StatusAccepted {
+				data, _ := io.ReadAll(res.Body)
+				t.Fatalf("create extraction status = %d, body=%s", res.StatusCode, data)
+			}
+			var created publicJob
+			decodeJSON(t, res.Body, &created)
+			done := waitJob(t, api.URL, created.ID)
+			if tc.wantCode != "" {
+				if done.Status != statusFailed || done.Code != tc.wantCode {
+					t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+				}
+				if got := putRequests.Load(); got != 0 {
+					t.Fatalf("wrong password made %d WebDAV uploads, want none", got)
+				}
+				if got := fake.file("/out/hello.txt"); got != nil {
+					t.Fatalf("encrypted file was extracted with wrong password: %q", got)
+				}
+				return
+			}
+			if done.Status != statusSucceeded {
+				t.Fatalf("job status = %s, error=%s code=%s", done.Status, done.Error, done.Code)
+			}
+			if got := string(fake.file("/out/hello.txt")); got != "Hello World\r\n" {
+				t.Fatalf("extracted content = %q", got)
+			}
+		})
 	}
 }
 
@@ -1754,6 +1874,19 @@ func findPreviewEntry(t *testing.T, entries []previewEntry, entryPath string) pr
 	}
 	t.Fatalf("entry %q not found in preview entries: %#v", entryPath, entries)
 	return previewEntry{}
+}
+
+func zipAES256Fixture(t *testing.T) []byte {
+	t.Helper()
+	// Fixed AES-256 archive from github.com/yeka/zip testdata/hello-aes.zip
+	// at 03d6312748a9, encrypted with "golang". Keeping the ciphertext fixed
+	// detects decryption regressions without regenerating it with the new crypto.
+	const raw = "UEsDBDMAAQBjALa0WkcAAAAAKQAAAA0AAAAJAAsAaGVsbG8udHh0AZkHAAIAQUUDAAAJibRjBr2PgpOjiWE9uCbRo+bguods0Ram35HPf4oUuJ8j45nLF9VlGlBLAQI/ADMAAQBjALa0WkcAAAAAKQAAAA0AAAAJAC8AAAAAAAAAIAAAAAAAAABoZWxsby50eHQKACAAAAAAAAEAGAB1wLLWaBDRAbo31dFoENEBujfV0WgQ0QEBmQcAAgBBRQMAAFBLBQYAAAAAAQABAGYAAABbAAAAAAA="
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func rarFixture(t *testing.T, name string) []byte {

@@ -138,3 +138,26 @@ do not use a missing-timestamp exemption or widen automatic major-version approv
 Acceptance requires the complete policy tests against the actual pinned Renovate image,
 including extraction, weekly grouping, security routing, and future-major isolation, plus
 both CodeQL analyses and full latest-host archive acceptance. Keep every existing assertion.
+
+
+## Go 1.26 source minimum and x/crypto maintenance decision
+
+Approve raising the backend module's source-build minimum from Go 1.25 to Go 1.26 so it
+can use `golang.org/x/crypto` 0.56.0, whose upstream module requires Go 1.26.0. The release
+compiler and container builder remain pinned to the already compatible Go 1.27.1.
+This maintenance change preserves the plugin's features, archive formats, and OpenCloud
+integration; source developers need Go 1.26 or newer.
+
+The update removes the dependency-level SSH denial-of-service findings
+[GO-2026-6354](https://pkg.go.dev/vuln/GO-2026-6354) and
+[GO-2026-6355](https://pkg.go.dev/vuln/GO-2026-6355). The archiver does not import the
+vulnerable SSH package; this is preventive dependency maintenance, not a claim of a reachable
+runtime vulnerability. The unrelated unused OpenPGP package finding remains reported by
+module-level scanning and is not suppressed.
+
+Acceptance preserves every existing regression and adds fixed-ciphertext AES-256 ZIP checks
+for correct-password preview/extraction and wrong-password rejection without WebDAV uploads.
+Run the full suite on the Go 1.26 source baseline and locked release compiler, plus race tests,
+vet/build, fresh vulnerability scans, frontend checks, both CodeQL analyses, and full acceptance
+on the latest official OpenCloud backend and Web. Exact release artifacts must pass acceptance
+again before publication.
