@@ -461,3 +461,55 @@ test('Node scalar and image share one Docker lookup and advance together', async
   assert.match(updated, /^  node: "24\.22\.0"$/m)
   assert.equal(extractRegex(updated, 'compatibility.lock.yaml', scalarManager).deps[0].currentValue, '24.22.0-bookworm')
 })
+
+
+test('the official Renovate image is extracted and retains weekly age-gated toolchain routing', async () => {
+  const lock = await readFile('compatibility.lock.yaml', 'utf8')
+  const imageManager = config.customManagers.find((manager) =>
+    manager.matchStrings?.some((pattern) => pattern.includes('[a-z0-9_]+_image')),
+  )
+  const dependency = extractRegex(lock, 'compatibility.lock.yaml', imageManager).deps
+    .find(({ depName }) => depName === 'renovate/renovate')
+  assert.ok(dependency)
+  assert.equal(dependency.datasource, 'docker')
+  assert.match(dependency.currentDigest, /^sha256:[a-f0-9]{64}$/)
+  const result = await applyPackageRules({
+    ...config, ...dependency,
+    manager: 'custom.regex',
+    packageFile: 'compatibility.lock.yaml',
+    currentVersion: '44.132.2',
+    newVersion: '44.132.3',
+    updateType: 'patch',
+    isBreaking: false,
+    isVulnerabilityAlert: false,
+  })
+  assert.equal(result.minimumReleaseAge, '3 days')
+  assert.equal(result.minimumReleaseAgeBehaviour, undefined)
+  assert.equal(result.groupSlug, 'runtime-build-toolchain-compatibility')
+  assert.equal(result.automerge, true)
+  assert.deepEqual(result.schedule, ['* * * * 0'])
+  assert.ok(combinedLabels(result).has('release:weekly'))
+  assert.ok(combinedLabels(result).has('review:automation'))
+})
+
+test('future breaking Renovate releases still require an isolated roadmap decision', async () => {
+  const result = await applyPackageRules({
+    ...config,
+    manager: 'custom.regex',
+    datasource: 'docker',
+    depName: 'renovate/renovate',
+    packageName: 'renovate/renovate',
+    packageFile: 'compatibility.lock.yaml',
+    currentVersion: '44.132.2',
+    newVersion: '45.0.0',
+    updateType: 'major',
+    isBreaking: true,
+    isVulnerabilityAlert: false,
+  })
+  assert.equal(result.minimumReleaseAge, '3 days')
+  assert.equal(result.groupName, null)
+  assert.equal(result.automerge, false)
+  assert.ok(combinedLabels(result).has('roadmap:required'))
+  assert.ok(!combinedLabels(result).has('release:weekly'))
+  assert.ok(combinedLabels(result).has('review:automation'))
+})

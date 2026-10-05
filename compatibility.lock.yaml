@@ -36,8 +36,9 @@ toolchains:
   # renovate: datasource=docker depName=tonistiigi/binfmt versioning=docker
   binfmt_image: "tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
   # Renovate receives a write-capable bot token, so its runtime is digest-pinned.
-  # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate versioning=docker
-  renovate_image: "ghcr.io/renovatebot/renovate:43.257.7@sha256:14cbf4bfbc686d62da375b11bbe68833ce5567caa41cd17c477d01f02c2befd0"
+  # Docker Hub supplies publication timestamps for the existing minimum-age gate.
+  # renovate: datasource=docker depName=renovate/renovate versioning=docker
+  renovate_image: "renovate/renovate:44.132.2@sha256:0191afbc3937e5316263426fc0ce1450f5c143d42e3f91da8c6f771e317fae51"
 
 release_policy:
   ordinary_updates: "weekly-grouped-patch-release"

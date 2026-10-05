@@ -110,3 +110,31 @@ compatible release line. Keep patch updates enabled with the existing weekly and
 routing, required checks, and full acceptance. This decision does not suppress vulnerability
 scanning or authorize releasing a vulnerable version. If 3.x loses maintenance or a required fix
 is unavailable on that line, block release and require a new migration decision.
+
+## Renovate 44 compatibility and registry decision
+
+The October 2026 maintenance review approves the isolated move from Renovate 43.257.7 to
+44.132.2. [Upstream confirms that 44.0.0 was an accidental major release with no breaking
+change](https://github.com/renovatebot/renovate/discussions/44952) and that 44 continues the
+43 release line; no more 43 releases are expected. This decision does not authorize later
+breaking releases or relax the default manual major-update review.
+
+44.132.2 includes the fixes for [GHSA-6j6f-fh7w-vvjr](https://github.com/renovatebot/renovate/security/advisories/GHSA-6j6f-fh7w-vvjr)
+and [GHSA-mpf8-qxrw-gq3w](https://github.com/renovatebot/renovate/security/advisories/GHSA-mpf8-qxrw-gq3w).
+The latter's Docker binary-source/import-path-update attack path is not enabled here.
+It also incorporates strict minimum-age fixes such as
+[GHSA-g4qr-hw2h-687r](https://github.com/renovatebot/renovate/security/advisories/GHSA-g4qr-hw2h-687r).
+The existing bot identity, repository scope, permissions, schedules, and security/merge gates
+remain unchanged; the automation image is still pinned by digest.
+
+Use the [official Docker Hub distribution](https://docs.renovatebot.com/getting-started/running/#docker-images)
+`renovate/renovate` so the Docker datasource can obtain release timestamps. GHCR does not
+supply the timestamps needed by the existing three-day minimum-age gate and can leave the
+self-update pending indefinitely. The 44.132.2 Docker Hub and GHCR manifests have the same
+SHA256 digest and amd64/arm64 child manifests. Docker Hub reports publication on
+2026-10-02 at 08:25 UTC, more than three days before this review. Preserve the three-day gate;
+do not use a missing-timestamp exemption or widen automatic major-version approval.
+
+Acceptance requires the complete policy tests against the actual pinned Renovate image,
+including extraction, weekly grouping, security routing, and future-major isolation, plus
+both CodeQL analyses and full latest-host archive acceptance. Keep every existing assertion.
