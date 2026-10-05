@@ -181,7 +181,7 @@
         "aquasec/trivy",
         "caddy",
         "docker/buildx",
-        "ghcr.io/renovatebot/renovate",
+        "renovate/renovate",
         "golang",
         "golang.org/x/vuln",
         "moby/buildkit",

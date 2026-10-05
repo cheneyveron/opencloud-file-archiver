@@ -109,7 +109,7 @@ test('runtime and build toolchains are isolated from application dependencies', 
   const toolchains = rule(
     'Keep runtime and build toolchains out of the application dependency batch',
   )
-  for (const dependency of ['alpine', 'caddy', 'golang', 'node', 'pnpm']) {
+  for (const dependency of ['alpine', 'caddy', 'golang', 'node', 'pnpm', 'renovate/renovate']) {
     assert.ok(toolchains.matchPackageNames.includes(dependency))
   }
   assert.equal(toolchains.groupSlug, 'runtime-build-toolchain-compatibility')
@@ -149,4 +149,16 @@ test('the Go scalar uses the same Docker lookup as its image references', () => 
   )
   assert.ok(genericScalar)
   assert.ok(!genericScalar.matchStrings[0].includes('golang-version'))
+})
+
+
+test('Renovate uses timestamp-backed official Docker Hub without a minimum-age exemption', async () => {
+  const lock = await readFile(new URL('../../compatibility.lock.yaml', import.meta.url), 'utf8')
+  assert.match(lock, /# renovate: datasource=docker depName=renovate\/renovate versioning=docker/)
+  assert.match(lock, /^  renovate_image: "renovate\/renovate:[^"@]+@sha256:[a-f0-9]{64}"$/m)
+  assert.equal(config.minimumReleaseAge, '3 days')
+  assert.equal(config.minimumReleaseAgeBehaviour, undefined)
+  assert.ok(config.packageRules.every((candidate) =>
+    candidate.minimumReleaseAgeBehaviour !== 'timestamp-optional',
+  ))
 })
