@@ -21,6 +21,9 @@ const { api: npmVersioning } = await import(
   renovateModule('dist/modules/versioning/npm/index.js')
 )
 const { GlobalConfig } = await import(renovateModule('dist/config/global.js'))
+const { normalizeDepNames } = await import(
+  renovateModule('dist/workers/repository/extract/manager-files.js')
+)
 const { PnpmWorkspaceFile } = await import(
   renovateModule('dist/modules/manager/npm/schema.js')
 )
@@ -471,6 +474,9 @@ test('the official Renovate image is extracted and retains weekly age-gated tool
   const dependency = extractRegex(lock, 'compatibility.lock.yaml', imageManager).deps
     .find(({ depName }) => depName === 'renovate/renovate')
   assert.ok(dependency)
+  // Match Renovate's real extraction pipeline before applying package-name rules.
+  normalizeDepNames(dependency)
+  assert.equal(dependency.packageName, 'renovate/renovate')
   assert.equal(dependency.datasource, 'docker')
   assert.match(dependency.currentDigest, /^sha256:[a-f0-9]{64}$/)
   const result = await applyPackageRules({
