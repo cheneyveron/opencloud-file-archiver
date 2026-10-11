@@ -30,7 +30,7 @@ toolchains:
   govulncheck: "v1.8.0"
   # Buildx client and its BuildKit daemon are independently pinned.
   # renovate: datasource=github-releases depName=docker/buildx
-  buildx: "v0.37.2"
+  buildx: "v0.38.0"
   # renovate: datasource=docker depName=moby/buildkit versioning=docker
   buildkit_image: "moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c"
   # renovate: datasource=docker depName=tonistiigi/binfmt versioning=docker
