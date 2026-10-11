@@ -49,3 +49,13 @@ test('build lock rejects duplicate compiler versions', async (t) => {
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /duplicate toolchains.go/)
 })
+
+// A package-only Playwright update must never pass with stale browser binaries.
+test('build lock rejects a Playwright package and browser image mismatch', async (t) => {
+  const result = await fixture(t, (source) => source.replace(
+    /^  playwright_image:.*$/m,
+    '  playwright_image: "mcr.microsoft.com/playwright:v0.0.1-noble@sha256:' + '0'.repeat(64) + '"',
+  ))
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /playwright_image must match the locked @playwright\/test version/)
+})
