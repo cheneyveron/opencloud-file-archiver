@@ -16,7 +16,7 @@ toolchains:
   node_image: "node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"
   # The extension's packageManager field is authoritative for reproducible builds.
   # renovate: datasource=npm depName=pnpm
-  pnpm: "12.10.1"
+  pnpm: "12.13.0"
   # Must match the @playwright/test version resolved in pnpm-lock.yaml.
   # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
   playwright_image: "mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f"
@@ -25,9 +25,9 @@ toolchains:
   caddy_image: "caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f"
   # Vulnerability scanner used for the candidate backend image.
   # renovate: datasource=docker depName=aquasec/trivy versioning=docker
-  trivy_image: "aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa"
+  trivy_image: "aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
   # renovate: datasource=go depName=golang.org/x/vuln
-  govulncheck: "v1.8.0"
+  govulncheck: "v1.9.0"
   # Buildx client and its BuildKit daemon are independently pinned.
   # renovate: datasource=github-releases depName=docker/buildx
   buildx: "v0.38.0"
