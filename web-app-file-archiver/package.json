@@ -21,7 +21,7 @@
     "@opencloud-eu/web-test-helpers": "^8.0.0",
     "@playwright/test": "^1.50.1",
     "@vue/test-utils": "^2.4.6",
-    "happy-dom": "^20.0.0",
+    "happy-dom": "^21.0.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.3",
     "vitest": "^5.0.0",
