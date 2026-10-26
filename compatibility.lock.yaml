@@ -6,9 +6,9 @@ schema_version: 1
 toolchains:
   # Security-patched compiler/runtime used for every build and acceptance run.
   # renovate: datasource=docker depName=golang versioning=docker
-  go: "1.27.2"
+  go: "1.27.3"
   # renovate: datasource=docker depName=golang versioning=docker
-  go_image: "golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d"
+  go_image: "golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c"
   # Reproducible extension build runtime; latest-host E2E proves compatibility.
   # renovate: datasource=docker depName=node versioning=docker
   node: "24.21.0"
@@ -16,23 +16,23 @@ toolchains:
   node_image: "node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"
   # The extension's packageManager field is authoritative for reproducible builds.
   # renovate: datasource=npm depName=pnpm
-  pnpm: "12.13.0"
+  pnpm: "12.15.0"
   # Must match the @playwright/test version resolved in pnpm-lock.yaml.
   # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
   playwright_image: "mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f"
   # Browser gateway used only by the disposable acceptance environment.
   # renovate: datasource=docker depName=caddy versioning=docker
-  caddy_image: "caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f"
+  caddy_image: "caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f"
   # Vulnerability scanner used for the candidate backend image.
   # renovate: datasource=docker depName=aquasec/trivy versioning=docker
-  trivy_image: "aquasec/trivy:0.76.0@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
+  trivy_image: "aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
   # renovate: datasource=go depName=golang.org/x/vuln
   govulncheck: "v1.9.0"
   # Buildx client and its BuildKit daemon are independently pinned.
   # renovate: datasource=github-releases depName=docker/buildx
   buildx: "v0.38.1"
   # renovate: datasource=docker depName=moby/buildkit versioning=docker
-  buildkit_image: "moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c"
+  buildkit_image: "moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c"
   # renovate: datasource=docker depName=tonistiigi/binfmt versioning=docker
   binfmt_image: "tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
   # Renovate receives a write-capable bot token, so its runtime is digest-pinned.
