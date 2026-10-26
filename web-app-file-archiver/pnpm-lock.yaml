@@ -168,6 +168,10 @@ overrides:
   ws: 8.22.0
   nanoid@<3.3.18: 3.3.20
   source-map-js@<1.2.2: 1.2.2
+  dompurify: 3.4.17
+  follow-redirects: 1.16.1
+  zod: 4.6.6
+  happy-dom@<21.0.4: 21.0.4
 
 importers:
 
@@ -175,7 +179,7 @@ importers:
     devDependencies:
       '@opencloud-eu/extension-sdk':
         specifier: ^8.0.0
-        version: 8.1.0(debug@4.4.3)(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.13(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))
+        version: 8.1.0(debug@4.4.3)(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.13(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))
       '@opencloud-eu/tsconfig':
         specifier: ^8.0.0
         version: 8.1.0
@@ -187,7 +191,7 @@ importers:
         version: 8.1.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extension-list@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(debug@4.4.3)(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3))
       '@opencloud-eu/web-test-helpers':
         specifier: ^8.0.0
-        version: 8.1.0(@opencloud-eu/web-pkg@8.1.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extension-list@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(debug@4.4.3)(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3)))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(debug@4.4.3)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue@3.5.44(typescript@6.0.3))
+        version: 8.1.0(@opencloud-eu/web-pkg@8.1.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extension-list@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(debug@4.4.3)(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3)))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(debug@4.4.3)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue@3.5.44(typescript@6.0.3))
       '@playwright/test':
         specifier: ^1.50.1
         version: 1.64.0
@@ -195,8 +199,8 @@ importers:
         specifier: ^2.4.6
         version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
       happy-dom:
-        specifier: ^20.0.0
-        version: 20.14.6
+        specifier: 21.0.4
+        version: 21.0.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -205,10 +209,10 @@ importers:
         version: 8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)
       vitest:
         specifier: ^5.0.0
-        version: 5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
+        version: 5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
       vitest-mock-extended:
         specifier: ^5.0.0
-        version: 5.1.1(typescript@6.0.3)(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))
+        version: 5.1.1(typescript@6.0.3)(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))
       vue:
         specifier: ^3.4.21
         version: 3.5.44(typescript@6.0.3)
@@ -1273,8 +1277,8 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
-  dompurify@3.4.16:
-    resolution: {integrity: sha512-sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ==}
+  dompurify@3.4.17:
+    resolution: {integrity: sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -1389,8 +1393,8 @@ packages:
   focus-trap@8.2.2:
     resolution: {integrity: sha512-qV0g8hRYBqgACcFOH3f9wXc4zPKhr/0z9RI2a6ZijZ72EeBi4g8oBy8zAWuUR1TsMpOzwpUMFvjdasrC41Joug==}
 
-  follow-redirects@1.16.0:
-    resolution: {integrity: sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw==}
+  follow-redirects@1.16.1:
+    resolution: {integrity: sha512-FNvFGzoMLWmE6Yj9spb/zjd7yiNCHiAW9/Tg9CXrQ8wuu32HtlJOwWO11OJafl5FfY3DxTdQ0vj42zU1kvv5jg==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -1449,8 +1453,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  happy-dom@20.14.6:
-    resolution: {integrity: sha512-5DDsf4QmEIlRL6NkCv/fxSjYHHkZceL/IaYQdJc2h3G7DRTEai++VTjbfL0LB9geW2VrA3+vrjF3Efx+OTtX0Q==}
+  happy-dom@21.0.4:
+    resolution: {integrity: sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw==}
     engines: {node: '>=20.0.0'}
 
   has-symbols@1.1.0:
@@ -2264,7 +2268,7 @@ packages:
       '@vitest/coverage-istanbul': 5.0.5
       '@vitest/coverage-v8': 5.0.5
       '@vitest/ui': 5.0.5
-      happy-dom: '*'
+      happy-dom: 21.0.4
       jsdom: '*'
       vite: ^6.4.0 || ^7.0.0 || ^8.0.0
     peerDependenciesMeta:
@@ -2412,8 +2416,8 @@ packages:
     resolution: {integrity: sha512-q/UYvr1gOk4XII+Cu1CW2dINjYqJJFifTzogEaIARznrvX7uOlHsdTEXcnOBMuIsrCGEEKdNxi74kyMLZlKVfw==}
     engines: {node: '>=16.0.0', npm: '>=8.0.0'}
 
-  zod@4.6.5:
-    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
 snapshots:
 
@@ -2673,14 +2677,14 @@ snapshots:
       - vue
       - webpack
 
-  '@opencloud-eu/extension-sdk@8.1.0(debug@4.4.3)(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.13(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))':
+  '@opencloud-eu/extension-sdk@8.1.0(debug@4.4.3)(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue-tsc@3.3.13(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))':
     dependencies:
       '@module-federation/vite': 1.14.2(debug@4.4.3)(node-fetch@3.3.2)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue-tsc@3.3.13(typescript@6.0.3))
       '@tailwindcss/vite': 4.3.3(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
       '@vitejs/plugin-basic-ssl': 2.3.0(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
       '@vitejs/plugin-vue': 6.0.9(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3))
       vite: 8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)
-      vitest: 5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
+      vitest: 5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
     transitivePeerDependencies:
       - bufferutil
       - debug
@@ -2704,7 +2708,7 @@ snapshots:
       luxon: 3.7.2
       uuid: 14.0.2
       webdav: 5.11.0
-      zod: 4.6.5
+      zod: 4.6.6
     transitivePeerDependencies:
       - debug
       - supports-color
@@ -2757,7 +2761,7 @@ snapshots:
       axios: 1.20.0(debug@4.4.3)
       cropperjs: 2.2.0
       deepmerge: 4.3.1
-      dompurify: 3.4.16
+      dompurify: 3.4.17
       filesize: 11.0.24
       fuse.js: 7.5.0
       highlight.js: 11.12.0
@@ -2778,7 +2782,7 @@ snapshots:
       vue3-gettext: 4.0.1(vue@3.5.44(typescript@6.0.3))
       y-protocols: 1.0.7(yjs@13.6.33)
       yjs: 13.6.33
-      zod: 4.6.5
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@75lb/nature'
       - '@farmfe/core'
@@ -2807,7 +2811,7 @@ snapshots:
       - vue
       - webpack
 
-  ? '@opencloud-eu/web-test-helpers@8.1.0(@opencloud-eu/web-pkg@8.1.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extension-list@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(debug@4.4.3)(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3)))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(debug@4.4.3)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue@3.5.44(typescript@6.0.3))'
+  ? '@opencloud-eu/web-test-helpers@8.1.0(@opencloud-eu/web-pkg@8.1.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extension-list@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@tiptap/extensions@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(debug@4.4.3)(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3)))(@vue/compiler-sfc@3.5.43)(@vue/devtools-api@8.2.1)(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(debug@4.4.3)(rolldown@1.2.13)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))(vue@3.5.44(typescript@6.0.3))'
   : dependencies:
       '@casl/ability': 7.0.1
       '@casl/vue': 3.0.1(@casl/ability@7.0.1)(vue@3.5.44(typescript@6.0.3))
@@ -2818,7 +2822,7 @@ snapshots:
       '@vue/test-utils': 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
       axios: 1.20.0(debug@4.4.3)
       pinia: 4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.44(typescript@6.0.3))
-      vitest-mock-extended: 5.1.1(typescript@6.0.3)(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))
+      vitest-mock-extended: 5.1.1(typescript@6.0.3)(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)))
       vue: 3.5.44(typescript@6.0.3)
       vue-router: 5.3.1(@vue/compiler-sfc@3.5.43)(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.44(typescript@6.0.3)))(rolldown@1.2.13)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))(vue@3.5.44(typescript@6.0.3))
       vue3-gettext: 4.0.1(vue@3.5.44(typescript@6.0.3))
@@ -3548,7 +3552,7 @@ snapshots:
 
   axios@1.20.0(debug@4.4.3):
     dependencies:
-      follow-redirects: 1.16.0(debug@4.4.3)
+      follow-redirects: 1.16.1(debug@4.4.3)
       form-data: 4.0.6
       https-proxy-agent: 5.0.1
       proxy-from-env: 2.1.0
@@ -3666,7 +3670,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  dompurify@3.4.16:
+  dompurify@3.4.17:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -3771,7 +3775,7 @@ snapshots:
     dependencies:
       tabbable: 6.5.0
 
-  follow-redirects@1.16.0(debug@4.4.3):
+  follow-redirects@1.16.1(debug@4.4.3):
     optionalDependencies:
       debug: 4.4.3
 
@@ -3843,7 +3847,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  happy-dom@20.14.6:
+  happy-dom@21.0.4:
     dependencies:
       '@types/node': 26.6.3
       '@types/whatwg-mimetype': 3.0.2
@@ -4516,13 +4520,13 @@ snapshots:
       jiti: 2.7.0
       yaml: 2.9.0
 
-  vitest-mock-extended@5.1.1(typescript@6.0.3)(vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))):
+  vitest-mock-extended@5.1.1(typescript@6.0.3)(vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))):
     dependencies:
       ts-essentials: 10.2.1(typescript@6.0.3)
       typescript: 6.0.3
-      vitest: 5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
+      vitest: 5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
 
-  vitest@5.0.5(@types/node@26.6.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)):
+  vitest@5.0.5(@types/node@26.6.3)(happy-dom@21.0.4)(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0)):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/mocker': 5.0.5(vite@8.3.4(@types/node@26.6.3)(jiti@2.7.0)(yaml@2.9.0))
@@ -4540,7 +4544,7 @@ snapshots:
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@types/node': 26.6.3
-      happy-dom: 20.14.6
+      happy-dom: 21.0.4
     transitivePeerDependencies:
       - msw
 
@@ -4671,4 +4675,4 @@ snapshots:
     dependencies:
       lib0: 0.2.118
 
-  zod@4.6.5: {}
+  zod@4.6.6: {}
