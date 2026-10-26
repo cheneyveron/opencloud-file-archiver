@@ -9,3 +9,9 @@ overrides:
 
   # GHSA-68fv-2mgg-jv7q: keep all Vue/PostCSS source-map consumers patched.
   "source-map-js@<1.2.2": 1.2.2
+
+  # Advisory fixes for transitive packages pulled in by OpenCloud web SDK/test helpers.
+  dompurify: 3.4.17
+  follow-redirects: 1.16.1
+  zod: 4.6.6
+  "happy-dom@<21.0.4": 21.0.4
