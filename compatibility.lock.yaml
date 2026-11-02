@@ -8,7 +8,7 @@ toolchains:
   # renovate: datasource=docker depName=golang versioning=docker
   go: "1.27.3"
   # renovate: datasource=docker depName=golang versioning=docker
-  go_image: "golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c"
+  go_image: "golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb"
   # Reproducible extension build runtime; latest-host E2E proves compatibility.
   # renovate: datasource=docker depName=node versioning=docker
   node: "24.21.0"
@@ -16,7 +16,7 @@ toolchains:
   node_image: "node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"
   # The extension's packageManager field is authoritative for reproducible builds.
   # renovate: datasource=npm depName=pnpm
-  pnpm: "12.15.0"
+  pnpm: "12.16.1"
   # Must match the @playwright/test version resolved in pnpm-lock.yaml.
   # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
   playwright_image: "mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea"
