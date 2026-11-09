@@ -8,7 +8,7 @@ toolchains:
   # renovate: datasource=docker depName=golang versioning=docker
   go: "1.27.3"
   # renovate: datasource=docker depName=golang versioning=docker
-  go_image: "golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb"
+  go_image: "golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18"
   # Reproducible extension build runtime; latest-host E2E proves compatibility.
   # renovate: datasource=docker depName=node versioning=docker
   node: "24.21.0"
@@ -16,23 +16,23 @@ toolchains:
   node_image: "node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"
   # The extension's packageManager field is authoritative for reproducible builds.
   # renovate: datasource=npm depName=pnpm
-  pnpm: "12.16.1"
+  pnpm: "12.18.0"
   # Must match the @playwright/test version resolved in pnpm-lock.yaml.
   # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
   playwright_image: "mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea"
   # Browser gateway used only by the disposable acceptance environment.
   # renovate: datasource=docker depName=caddy versioning=docker
-  caddy_image: "caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f"
+  caddy_image: "caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee"
   # Vulnerability scanner used for the candidate backend image.
   # renovate: datasource=docker depName=aquasec/trivy versioning=docker
-  trivy_image: "aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c"
+  trivy_image: "aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb"
   # renovate: datasource=go depName=golang.org/x/vuln
   govulncheck: "v1.9.0"
   # Buildx client and its BuildKit daemon are independently pinned.
   # renovate: datasource=github-releases depName=docker/buildx
   buildx: "v0.38.1"
   # renovate: datasource=docker depName=moby/buildkit versioning=docker
-  buildkit_image: "moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c"
+  buildkit_image: "moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe"
   # renovate: datasource=docker depName=tonistiigi/binfmt versioning=docker
   binfmt_image: "tonistiigi/binfmt:latest@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
   # Renovate receives a write-capable bot token, so its runtime is digest-pinned.
