@@ -16,7 +16,7 @@ toolchains:
   node_image: "node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4"
   # The extension's packageManager field is authoritative for reproducible builds.
   # renovate: datasource=npm depName=pnpm
-  pnpm: "12.20.0"
+  pnpm: "12.21.0"
   # Must match the @playwright/test version resolved in pnpm-lock.yaml.
   # renovate: datasource=docker depName=mcr.microsoft.com/playwright versioning=docker
   playwright_image: "mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe"
@@ -27,7 +27,7 @@ toolchains:
   # renovate: datasource=docker depName=aquasec/trivy versioning=docker
   trivy_image: "aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb"
   # renovate: datasource=go depName=golang.org/x/vuln
-  govulncheck: "v1.9.0"
+  govulncheck: "v1.10.0"
   # Buildx client and its BuildKit daemon are independently pinned.
   # renovate: datasource=github-releases depName=docker/buildx
   buildx: "v0.39.0"
