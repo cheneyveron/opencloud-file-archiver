@@ -21,4 +21,4 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: echo "Dependabot candidate PR #${PR_NUMBER} at ${HEAD_SHA}"
+        run: 'echo "Dependabot candidate PR #${PR_NUMBER} at ${HEAD_SHA}"'
